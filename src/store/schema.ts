@@ -168,4 +168,30 @@ export const migrations: string[] = [
   );
   `,
   `ALTER TABLE symbols ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}';`,
+  // Roles and member tokens. Only the sha256 of a token is stored; the value is shown once at creation.
+  `
+  CREATE TABLE tokens(
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    member TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('admin','member','viewer')),
+    hash TEXT NOT NULL UNIQUE,
+    prefix TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
+    revoked_at INTEGER
+  );
+  ALTER TABLE sessions ADD COLUMN token_id TEXT;
+  ALTER TABLE sessions ADD COLUMN member TEXT;
+  `,
+  // Asynchronous verification: a run is inserted as 'running' and finished later. Default 'failed' so a row
+  // never claims 'passed' by omission; existing rows are backfilled from the old boolean.
+  `
+  ALTER TABLE verification_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'failed'
+    CHECK(status IN ('running','passed','failed','inconclusive','error'));
+  ALTER TABLE verification_runs ADD COLUMN reasons_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE verification_runs ADD COLUMN finished_at INTEGER;
+  UPDATE verification_runs SET status = CASE WHEN passed = 1 THEN 'passed' ELSE 'failed' END, finished_at = created_at;
+  `,
 ];

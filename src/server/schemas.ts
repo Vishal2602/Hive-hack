@@ -34,10 +34,19 @@ export const commandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('apply'), sessionId: uuid, proposalId: uuid }),
   z.object({ action: z.literal('contract_check'), sessionId: uuid, contractId: uuid }),
   z.object({ action: z.literal('verify'), sessionId: uuid, contractId: uuid, command: text }),
+  // Status of a verification run. With sessionId (the MCP tools always send it) the session is heartbeated and must be the caller's.
+  z.object({ action: z.literal('verify_status'), runId: uuid, sessionId: uuid.optional() }),
   z.object({ action: z.literal('claim'), sessionId: uuid, rule: claimRuleSchema }),
   z.object({ action: z.literal('analyze'), sessionId: uuid, force: z.boolean().optional() }),
   // Hook actions: authenticated by the shared token only; a hook process has no MCP session of its own.
   z.object({ action: z.literal('sync') }),
   z.object({ action: z.literal('hook_check'), file: text, clientSession: text.optional() }),
+  // Members and tokens. token_* are admin-only (src/server/auth.ts); the token value is returned once by token_create.
+  z.object({ action: z.literal('member_list') }),
+  z.object({ action: z.literal('token_create'), label: z.string().trim().min(1).max(80), member: z.string().trim().min(1).max(80),
+    role: z.enum(['admin', 'member', 'viewer']) }),
+  z.object({ action: z.literal('token_list') }),
+  z.object({ action: z.literal('token_rename'), tokenId: uuid, label: z.string().trim().min(1).max(80) }),
+  z.object({ action: z.literal('token_revoke'), tokenId: uuid }),
 ]);
 export type Command = z.infer<typeof commandSchema>;

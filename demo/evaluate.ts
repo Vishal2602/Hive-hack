@@ -92,11 +92,11 @@ const unitMismatchHive: Scenario = { name: 'Unit mismatch (cents vs dollars)', m
     const preview = service.preview(ids.pricing!, CHANGE_SIGNATURE);
     const applied = preview.status === 'previewed' ? service.apply(ids.pricing!, preview.proposalId) : null;
     const implementedStatus = service.coordinator.contract(contract.id).status;
-    const failing = service.verify(ids.pricing!, contract.id, TEST_COMMAND);
+    const failing = await service.waitForRun(service.verify(ids.pricing!, contract.id, TEST_COMMAND).id);
     ws.write('src/pricing.ts', EDITS.producerBody);
     ws.write('src/button.ts', EDITS.uiLabel);
     const after = service.snapshot().findings;
-    const passing = service.verify(ids.pricing!, contract.id, TEST_COMMAND);
+    const passing = await service.waitForRun(service.verify(ids.pricing!, contract.id, TEST_COMMAND).id);
     const final = service.coordinator.contract(contract.id);
     const added = newDiagnostics(baseline, typeCheck(service));
     const uiAlerts = warnings([...before, ...after]).filter(f => f.sessions.includes(ids.ui!));

@@ -8,6 +8,10 @@ export interface Session {
   client: string | null;
   expiresAt: number;
   status: SessionStatus;
+  /** Member name of the token that registered the session ('operator' for HIVE_TOKEN); null for legacy rows. */
+  member?: string | null;
+  /** Token row id that registered the session; null for the operator token and legacy rows. */
+  tokenId?: string | null;
 }
 export interface Assumption {
   // Canonical semantic identity, e.g. src/pricing.ts#getPrice:unit.
@@ -46,18 +50,31 @@ export type ContractStatus = 'proposed' | 'accepted' | 'implemented' | 'verified
 export interface ContractVersion { version: number; declaration: string; behaviorNotes: string; participants: string[]; at: number }
 export interface Acknowledgement { sessionId: string; version: number; intentRevision: number; at: number }
 export interface ImplementationEvidence { symbol: string; file: string; declarationHash: string; declaration: string; revision: number; at: number }
+/**
+ * running: child process in flight. passed: exit 0 + real type-check + implementation evidence, files unchanged.
+ * failed: the command or a check failed (including timeout). inconclusive: checked files or the contract changed
+ * while the command ran, so the result proves nothing. error: the command could not be run at all.
+ */
+export type VerificationStatus = 'running' | 'passed' | 'failed' | 'inconclusive' | 'error';
 export interface VerificationRun {
   id: string;
   contractId: string;
   version: number;
   command: string;
-  exitCode: number;
+  status: VerificationStatus;
+  /** null while running, or when the process was killed by a signal / never started. */
+  exitCode: number | null;
+  /** true only when status is 'passed'. */
   passed: boolean;
   overlay: boolean;
   revision: number;
   sourceHashes: Record<string, string>;
+  /** Combined stdout+stderr tail, capped at 64 KB. */
   output: string;
+  /** Why the run is not 'passed' (empty when it passed or is still running). */
+  reasons: string[];
   at: number;
+  finishedAt: number | null;
 }
 export interface ContractEvidence {
   implemented?: ImplementationEvidence | null;

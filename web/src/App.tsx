@@ -1,9 +1,10 @@
 // Routes. Screens live in src/screens and are the only files screen builders replace.
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+// The router (basename /ui) is created in main.tsx; HiveProvider picks live (default) or mock (?mock=1) data.
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { ToastStack, ToastStackProvider } from '@/components/arc/toast-stack/toast-stack';
 import { AppShell } from '@/shell/AppShell';
 import { JoinRoute } from '@/shell/JoinRoute';
-import { MockProvider } from '@/shell/store';
+import { HiveProvider } from '@/shell/store';
 import Activity from '@/screens/Activity';
 import AgreementDetail from '@/screens/AgreementDetail';
 import Agreements from '@/screens/Agreements';
@@ -14,9 +15,8 @@ import SignIn from '@/screens/SignIn';
 
 export default function App() {
   return (
-    <MockProvider>
+    <HiveProvider>
       <ToastStackProvider>
-        <BrowserRouter>
           <Routes>
             <Route path="/signin" element={<SignIn />} />
             <Route path="/join" element={<JoinRoute />} />
@@ -30,9 +30,8 @@ export default function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
-        </BrowserRouter>
         <ToastStack />
       </ToastStackProvider>
-    </MockProvider>
+    </HiveProvider>
   );
 }

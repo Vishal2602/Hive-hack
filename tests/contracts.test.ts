@@ -28,7 +28,9 @@ function setup() {
   const read = (file: string) => readFileSync(join(dir, file), 'utf8');
   const adaptConsumer = () => write('src/invoice.ts', "import { getPrice } from './pricing.ts';\nimport { applyTax } from './tax.ts';\nexport function invoiceTotal(): string { return `$${(getPrice('cents') / 100).toFixed(2)}`; }\nexport function invoiceWithTax(): number { return applyTax(getPrice('dollars'), 0.2, 'EU'); }\n");
   const implementProducerBody = () => write('src/pricing.ts', "/** Unit is explicit. 'cents' returns integer USD cents. */\nexport function getPrice(unit: 'cents' | 'dollars'): number { return unit === 'cents' ? 1999 : 19.99; }\n");
-  return { dir, service, a, b, c, write, read, adaptConsumer, implementProducerBody, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  // verify() now returns a 'running' run immediately (async verification); these tests assert on the finished run.
+  const verify = (sessionId: string, contractId: string, command: string) => service.waitForRun(service.verify(sessionId, contractId, command).id);
+  return { dir, service, a, b, c, write, read, verify, adaptConsumer, implementProducerBody, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 test('declaration validation rejects any, bodies and wrong names; overlay text is ambient', () => {
@@ -54,8 +56,8 @@ test('findings: unit mismatch across files, compiler-backed dependent write, and
   } finally { cleanup(); }
 });
 
-test('consumer builds against the overlay while the producer is pending; the real check fails; nothing is verified', () => {
-  const { service, a, b, adaptConsumer, cleanup } = setup();
+test('consumer builds against the overlay while the producer is pending; the real check fails; nothing is verified', async () => {
+  const { service, a, b, verify, adaptConsumer, cleanup } = setup();
   try {
     const contract = service.propose(a.id, { title: 'Explicit unit parameter on getPrice', declaration: DECLARATION, participants: [b.id], producerSymbol: PRODUCER, behaviorNotes: "getPrice('cents') returns 1999 for a $19.99 item; invoices keep printing $19.99" });
     assert.equal(contract.status, 'proposed');
@@ -73,7 +75,8 @@ test('consumer builds against the overlay while the producer is pending; the rea
     service.coordinator.acknowledge(b.id, contract.id, 1);
     service.coordinator.acknowledge(a.id, contract.id, 1);
     assert.equal(service.coordinator.contract(contract.id).status, 'accepted');
-    const run = service.verify(b.id, contract.id, TEST_COMMAND);
+    const run = await verify(b.id, contract.id, TEST_COMMAND);
+    assert.equal(run.status, 'failed');
     assert.equal(run.passed, false);
     assert.notEqual(run.exitCode, 0);
     assert.equal(service.coordinator.contract(contract.id).status, 'accepted', 'acceptance never becomes verified without implementation');
@@ -82,8 +85,8 @@ test('consumer builds against the overlay while the producer is pending; the rea
   } finally { cleanup(); }
 });
 
-test('agreement gate, implementation evidence and behavioral verification are separate states', () => {
-  const { service, a, b, adaptConsumer, implementProducerBody, write, read, cleanup } = setup();
+test('agreement gate, implementation evidence and behavioral verification are separate states', async () => {
+  const { service, a, b, verify, adaptConsumer, implementProducerBody, write, read, cleanup } = setup();
   try {
     const contract = service.propose(a.id, { title: 'Explicit unit parameter on getPrice', declaration: DECLARATION, participants: [b.id], producerSymbol: PRODUCER });
     adaptConsumer();
@@ -101,13 +104,14 @@ test('agreement gate, implementation evidence and behavioral verification are se
     assert.equal(current.evidence.implemented!.declaration, "getPrice(unit: 'cents' | 'dollars'): number");
 
     // Structural match is not behavior: the body still returns dollars.
-    const failing = service.verify(a.id, contract.id, TEST_COMMAND);
+    const failing = await verify(a.id, contract.id, TEST_COMMAND);
     assert.equal(failing.passed, false);
     assert.equal(service.coordinator.contract(contract.id).status, 'implemented');
     assert.match(failing.output, /1999/);
 
     implementProducerBody(); // direct edit by the producer; detected, not blocked
-    const passing = service.verify(a.id, contract.id, TEST_COMMAND);
+    const passing = await verify(a.id, contract.id, TEST_COMMAND);
+    assert.equal(passing.status, 'passed', passing.output);
     assert.equal(passing.passed, true, passing.output);
     assert.equal(passing.exitCode, 0);
     current = service.coordinator.contract(contract.id);
@@ -123,7 +127,7 @@ test('agreement gate, implementation evidence and behavioral verification are se
     current = service.coordinator.contract(contract.id);
     assert.equal(current.status, 'implemented');
     assert.match(current.evidence.staleReason!, /source changed after verification/);
-    assert.equal(service.verify(a.id, contract.id, TEST_COMMAND).passed, true);
+    assert.equal((await verify(a.id, contract.id, TEST_COMMAND)).passed, true);
     assert.equal(service.coordinator.contract(contract.id).status, 'verified');
     assert.equal(service.contracts.runs(contract.id).length, 3);
   } finally { cleanup(); }

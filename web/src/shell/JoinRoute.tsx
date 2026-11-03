@@ -15,14 +15,19 @@ export function JoinRoute() {
   const [token] = useState(() => new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token'));
 
   useEffect(() => {
-    window.history.replaceState(null, '', '/join');
+    // Drop the fragment from history (the app is served under BASE_URL, /ui/).
+    window.history.replaceState(null, '', `${import.meta.env.BASE_URL.replace(/\/$/, '')}/join`);
     if (!token) {
       setError('This invite link has no token in it. Ask the person who invited you to send it again.');
       return;
     }
-    const result = signIn(token);
-    if (result.ok) navigate('/', { replace: true });
-    else setError(result.reason);
+    let cancelled = false;
+    void signIn(token).then(result => {
+      if (cancelled) return;
+      if (result.ok) navigate('/', { replace: true });
+      else setError(result.reason);
+    });
+    return () => { cancelled = true; };
   }, [token, signIn, navigate]);
 
   return (

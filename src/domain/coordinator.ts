@@ -21,7 +21,7 @@ export interface CoordinatorOptions {
   /** Extra finding producers (compiler graph, claims). Each receives the live intents. */
   detectors?: Array<(intents: Intent[]) => Finding[]>;
 }
-export interface RegisterOptions { workspace?: string; client?: string }
+export interface RegisterOptions { workspace?: string; client?: string; tokenId?: string | null; member?: string | null }
 export interface ProposeInput {
   title: string;
   declaration: string;
@@ -32,7 +32,7 @@ export interface ProposeInput {
 }
 export interface ReviseInput { title?: string; declaration?: string; behaviorNotes?: string }
 
-type SessionRow = { id: string; workspace_id: string; name: string; client: string | null; lease_expires_at: number; status: SessionStatus };
+type SessionRow = { id: string; workspace_id: string; name: string; client: string | null; lease_expires_at: number; status: SessionStatus; token_id: string | null; member: string | null };
 type IntentRow = { session_id: string; revision: number; task: string; scope_json: string; assumptions_json: string; created_at: number };
 type ContractRow = {
   id: string; version: number; owner_session_id: string; title: string; producer_symbol: string | null; declaration: string;
@@ -40,6 +40,11 @@ type ContractRow = {
   created_at: number; updated_at: number;
 };
 
+type EventRow = { seq: number; type: string; payload_json: string; created_at: number };
+function rowToEvent(row: EventRow): Event {
+  const { detail, ...payload } = JSON.parse(row.payload_json) as { detail: string } & Record<string, unknown>;
+  return { seq: Number(row.seq), at: Number(row.created_at), type: row.type, detail, payload };
+}
 function gitHead(root: string): string | null {
   const result = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 5000 });
   return result.status === 0 ? result.stdout.trim() : null;
@@ -117,20 +122,30 @@ export class Coordinator {
       this.repositoryId, type, JSON.stringify({ detail, ...payload }), at);
     return { seq: Number(result.lastInsertRowid), at, type, detail, payload };
   }
+  /**
+   * Paging read: the first `limit` events with seq > afterSeq, ascending. Passing the last seq of one
+   * page as the next `afterSeq` returns every event exactly once (no gaps, no repeats).
+   */
   events(afterSeq = 0, limit = 200): Event[] {
-    return this.store.all<{ seq: number; type: string; payload_json: string; created_at: number }>(
-      'SELECT seq, type, payload_json, created_at FROM events WHERE repository_id = ? AND seq > ? ORDER BY seq DESC LIMIT ?',
-      this.repositoryId, afterSeq, limit)
-      .reverse()
-      .map(row => {
-        const { detail, ...payload } = JSON.parse(row.payload_json) as { detail: string } & Record<string, unknown>;
-        return { seq: Number(row.seq), at: Number(row.created_at), type: row.type, detail, payload };
-      });
+    return this.store.all<EventRow>(
+      'SELECT seq, type, payload_json, created_at FROM events WHERE repository_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?',
+      this.repositoryId, afterSeq, limit).map(rowToEvent);
+  }
+  /** The most recent `limit` events, ascending (for snapshots and recent-activity detectors, not paging). */
+  recentEvents(limit = 200): Event[] {
+    return this.store.all<EventRow>(
+      'SELECT seq, type, payload_json, created_at FROM events WHERE repository_id = ? ORDER BY seq DESC LIMIT ?',
+      this.repositoryId, limit).reverse().map(rowToEvent);
+  }
+  /** Highest event seq (0 when none); a cheap change marker for snapshot caching. */
+  lastEventSeq(): number {
+    return Number(this.store.get<{ seq: number | null }>('SELECT MAX(seq) AS seq FROM events WHERE repository_id = ?', this.repositoryId)?.seq ?? 0);
   }
 
   // ---- sessions -------------------------------------------------------------------
   private rowToSession(row: SessionRow): Session {
-    return { id: row.id, name: row.name, workspaceId: row.workspace_id, client: row.client, expiresAt: Number(row.lease_expires_at), status: row.status };
+    return { id: row.id, name: row.name, workspaceId: row.workspace_id, client: row.client, expiresAt: Number(row.lease_expires_at), status: row.status,
+      member: row.member ?? null, tokenId: row.token_id ?? null };
   }
   private expire(): void {
     const now = this.clock();
@@ -160,10 +175,11 @@ export class Coordinator {
         workspaceId = this.upsertWorkspace(this.repositoryId, real);
       }
       const now = this.clock();
-      const session: Session = { id: randomUUID(), name, workspaceId, client: options.client ?? null, expiresAt: now + this.ttl, status: 'active' };
-      this.store.run('INSERT INTO sessions(id, workspace_id, name, client, lease_expires_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        session.id, session.workspaceId, session.name, session.client, session.expiresAt, 'active', now, now);
-      this.emit('session.registered', `${name} (${session.id})`, { sessionId: session.id, name, workspaceId });
+      const session: Session = { id: randomUUID(), name, workspaceId, client: options.client ?? null, expiresAt: now + this.ttl, status: 'active',
+        member: options.member ?? null, tokenId: options.tokenId ?? null };
+      this.store.run('INSERT INTO sessions(id, workspace_id, name, client, lease_expires_at, status, created_at, updated_at, token_id, member) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        session.id, session.workspaceId, session.name, session.client, session.expiresAt, 'active', now, now, session.tokenId ?? null, session.member ?? null);
+      this.emit('session.registered', `${session.member ? `${session.member} · ` : ''}${name} (${session.id})`, { sessionId: session.id, name, member: session.member ?? null, workspaceId });
       return session;
     });
   }
@@ -380,6 +396,6 @@ export class Coordinator {
     const findings = [...detect(intents)];
     for (const detector of this.detectors) findings.push(...detector(intents));
     return structuredClone({ repository: this.repository(), workspaces: this.workspaces(), sessions: this.sessions(), intents,
-      contracts: this.contracts(), findings, events: this.events() });
+      contracts: this.contracts(), findings, events: this.recentEvents() });
   }
 }

@@ -109,7 +109,7 @@ try {
   expect(implemented.status === 'implemented', "contract is 'implemented' (structure only)");
 
   heading(`Verification: ${TEST_COMMAND}`);
-  const failing = service.verify(pricing.id, contract.id, TEST_COMMAND);
+  const failing = await service.waitForRun(service.verify(pricing.id, contract.id, TEST_COMMAND).id);
   detail(`exit code ${failing.exitCode}; passed: ${failing.passed}`);
   detail(`assertion: ${assertionLine(failing.output) ?? '(no assertion line found)'}`);
   expect(!failing.passed && failing.exitCode !== 0, 'verification fails: the body still returns 19.99 (dollars), the contract promises 1999 cents');
@@ -127,7 +127,7 @@ try {
   expect(uiWarnings.length === 0, 'UI agent has no warnings (only the informational after-the-fact direct_edit label)');
 
   heading(`Verification again: ${TEST_COMMAND}`);
-  const passing = service.verify(pricing.id, contract.id, TEST_COMMAND);
+  const passing = await service.waitForRun(service.verify(pricing.id, contract.id, TEST_COMMAND).id);
   detail(`exit code ${passing.exitCode}; passed: ${passing.passed}`);
   const verified = service.coordinator.contract(contract.id);
   const run = verified.evidence.verification;

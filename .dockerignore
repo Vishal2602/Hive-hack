@@ -1,0 +1,28 @@
+# Secrets and local state never enter the build context.
+.env
+.env.*
+!.env.example
+**/.env
+**/.hive
+.hive
+.git
+**/.DS_Store
+*.log
+coverage
+
+# Dependencies are installed inside the image.
+node_modules
+**/node_modules
+web/node_modules
+web/dist
+
+# Not needed at runtime and possibly large.
+web/screenshots
+superdesign
+evaluation
+docs/**/*.png
+docs/**/*.jpg
+docs/**/*.jpeg
+docs/**/*.gif
+docs/**/*.webp
+docs/**/*.mp4

@@ -1,17 +1,18 @@
-// Primary sections of the app, in navigation order.
+// Primary sections of the app, in navigation order. `key` is the second key of the "g" shortcut.
 export interface Section {
   id: 'overview' | 'connect' | 'agreements' | 'activity' | 'members';
   path: string;
   title: string;
   description: string;
+  key: 'o' | 'c' | 'a' | 't' | 'm';
 }
 
 export const SECTIONS: Section[] = [
-  { id: 'overview', path: '/', title: 'Overview', description: 'What every agent is doing and the conflict that needs a decision.' },
-  { id: 'connect', path: '/connect', title: 'Connect', description: 'Share the cloud link and invite people and their agents.' },
-  { id: 'agreements', path: '/agreements', title: 'Agreements', description: 'Versioned promises about interfaces, signed by every agent involved.' },
-  { id: 'activity', path: '/activity', title: 'Activity', description: 'Every event in order, with diffs and test output.' },
-  { id: 'members', path: '/members', title: 'Members', description: 'People, roles and the tokens their agents use.' },
+  { id: 'overview', path: '/', title: 'Overview', description: 'What every agent is doing and the conflict that needs a decision.', key: 'o' },
+  { id: 'connect', path: '/connect', title: 'Connect', description: 'Share the cloud link and invite people and their agents.', key: 'c' },
+  { id: 'agreements', path: '/agreements', title: 'Agreements', description: 'Versioned promises about interfaces, signed by every agent involved.', key: 'a' },
+  { id: 'activity', path: '/activity', title: 'Activity', description: 'Every event in order, with diffs and test output.', key: 't' },
+  { id: 'members', path: '/members', title: 'Members', description: 'People, roles and the tokens their agents use.', key: 'm' },
 ];
 
 export function sectionForPath(pathname: string): Section {

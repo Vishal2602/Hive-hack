@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { Coordinator, ProposeInput, ReviseInput } from '../domain/coordinator.ts';
 import type { Contract, ImplementationEvidence, VerificationRun } from '../domain/types.ts';
@@ -17,6 +17,10 @@ export interface ContractServiceOptions {
   verifyAllow?: string[];
   /** When true, operations on a symbol other live sessions depend on require an accepted contract. Default: warn only. */
   requireAgreementForDependents?: boolean;
+  /** Verification child process timeout. Default 120 s. */
+  verifyTimeoutMs?: number;
+  /** Bytes of combined stdout+stderr kept per run (the tail). Default 64 KB. */
+  verifyOutputLimit?: number;
 }
 export interface ContractCheck {
   contract: Contract;
@@ -28,6 +32,25 @@ export interface ContractCheck {
 const DEFAULT_ALLOW = ['npm test', 'npm run', 'node --test', 'npx tsc', 'npx vitest'];
 const SAFE_COMMAND = /^[A-Za-z0-9 ._/:*=@-]+$/;
 const LIVE = new Set(['accepted', 'implemented', 'verified']);
+/** Only these variables reach a verification child: no Hive token, model key, NODE_OPTIONS or inherited test-runner context. */
+const CHILD_ENV = ['PATH', 'HOME', 'LANG', 'TMPDIR'];
+
+export function verificationEnv(source: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of CHILD_ENV) { const value = source[key]; if (value) env[key] = value; }
+  return env;
+}
+
+type RunRow = { id: string; contract_id: string; version: number; source_hashes_json: string; command: string; exit_code: number; output: string; revision: number;
+  passed: number; created_at: number; status: string; reasons_json: string; finished_at: number | null };
+function rowToRun(row: RunRow): VerificationRun {
+  const status = row.status as VerificationRun['status'];
+  const exitCode = Number(row.exit_code);
+  return { id: row.id, contractId: row.contract_id, version: Number(row.version), command: row.command, status,
+    exitCode: status === 'running' || exitCode === -1 ? null : exitCode, passed: status === 'passed', overlay: false,
+    revision: Number(row.revision), sourceHashes: JSON.parse(row.source_hashes_json) as Record<string, string>, output: row.output,
+    reasons: JSON.parse(row.reasons_json) as string[], at: Number(row.created_at), finishedAt: row.finished_at === null ? null : Number(row.finished_at) };
+}
 
 /** Ghost Contract lifecycle on top of the coordinator: validation, overlays, evidence, verification, gates. */
 export class ContractService {
@@ -38,6 +61,9 @@ export class ContractService {
   private readonly clock: () => number;
   private readonly verifyAllow: string[];
   private readonly requireAgreement: boolean;
+  private readonly timeoutMs: number;
+  private readonly outputLimit: number;
+  private readonly inFlight = new Map<string, { contractId: string; command: string; done: Promise<VerificationRun> }>();
 
   constructor(options: ContractServiceOptions) {
     this.store = options.store;
@@ -47,6 +73,8 @@ export class ContractService {
     this.clock = options.clock ?? Date.now;
     this.verifyAllow = options.verifyAllow ?? DEFAULT_ALLOW;
     this.requireAgreement = options.requireAgreementForDependents ?? false;
+    this.timeoutMs = options.verifyTimeoutMs ?? 120_000;
+    this.outputLimit = options.verifyOutputLimit ?? 64 * 1024;
   }
 
   private workspaceOf(sessionId: string): string { return this.coordinator.heartbeat(sessionId).workspaceId; }
@@ -144,7 +172,11 @@ export class ContractService {
     return null;
   }
 
-  /** Runs an allowlisted command in the session's workspace and records evidence. Only exit 0 + real type-check + implementation evidence can yield 'verified'. */
+  /**
+   * Starts an allowlisted command in the session's workspace and returns the run as 'running' immediately; the
+   * daemon's event loop is never blocked. The finished run is recorded by finishRun(). Only exit 0 + real type-check
+   * + implementation evidence, with the checked files unchanged during the run, can yield 'passed' / 'verified'.
+   */
   verify(sessionId: string, contractId: string, command: string): VerificationRun {
     const session = this.coordinator.heartbeat(sessionId);
     this.sync(session.workspaceId);
@@ -155,37 +187,152 @@ export class ContractService {
     if (!contract.producerSymbol) throw new Error('Contract has no producer symbol to verify');
     const problem = this.allowedCommand(command);
     if (problem) throw new Error(problem);
+    const trimmed = command.trim();
+    for (const [runId, flight] of this.inFlight) {
+      if (flight.contractId !== contractId) continue;
+      if (flight.command === trimmed) return this.run(runId)!; // idempotent: the same check is already running
+      throw new Error(`Verification ${runId} (${flight.command}) is already running for this contract; wait for it with verify_status`);
+    }
     const graph = this.graphFor(session.workspaceId);
-    const [bin, ...args] = command.trim().split(/\s+/);
-    const started = this.clock();
-    // Child env: no Hive/model secrets, and no inherited test-runner context (a nested `node --test` would otherwise report exit 0).
-    const env: Record<string, string | undefined> = { ...process.env, HIVE_TOKEN: '', MODEL_API_KEY: '' };
-    delete env.NODE_TEST_CONTEXT; delete env.NODE_OPTIONS;
-    const proc = spawnSync(bin!, args, { cwd: graph.root, encoding: 'utf8', timeout: 120_000, env });
-    const exitCode = proc.status ?? (proc.error ? 1 : 1);
-    const output = `${proc.stdout ?? ''}${proc.stderr ?? ''}${proc.error ? `\n${proc.error.message}` : ''}`.slice(-8000);
-    const real = this.real(contract);
-    const implementation = this.implementation(contract);
     const files = [...new Set([contract.producerSymbol.split('#')[0]!, ...this.consumerFiles(contract)])];
-    const run: VerificationRun = { id: randomUUID(), contractId, version: contract.version, command: command.trim(), exitCode,
-      passed: exitCode === 0 && real.ok && implementation.ok, overlay: false, revision: this.coordinator.revision(), sourceHashes: graph.hashesFor(files), output, at: started };
+    const startHashes = graph.hashesFor(files);
+    const started = this.clock();
+    const run: VerificationRun = { id: randomUUID(), contractId, version: contract.version, command: trimmed, status: 'running', exitCode: null, passed: false,
+      overlay: false, revision: this.coordinator.revision(), sourceHashes: startHashes, output: '', reasons: [], at: started, finishedAt: null };
     this.store.transaction(() => {
-      this.store.run('INSERT INTO verification_runs(id, contract_id, version, source_hashes_json, command, exit_code, output, revision, overlay, passed, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)',
-        run.id, contractId, run.version, JSON.stringify(run.sourceHashes), run.command, exitCode, output, run.revision, run.passed ? 1 : 0, started);
-      const reasons = [exitCode === 0 ? null : `exit code ${exitCode}`, real.ok ? null : `real type-check failed: ${real.diagnostics.slice(0, 3).map(d => `${d.file}:${d.line} ${d.message}`).join(' | ')}`, implementation.ok ? null : `not implemented: ${implementation.reason}`].filter(Boolean);
-      if (run.passed) this.coordinator.updateContract(contractId, 'verified', { ...contract.evidence, implemented: implementation.evidence, verification: run }, `${run.command} exit 0 at revision ${run.revision}`);
-      else {
-        this.coordinator.setEvidence(contractId, { ...contract.evidence, verification: run });
-        this.coordinator.emit('contract.verification_failed', `${contractId} v${contract.version}: ${reasons.join('; ')}`, { contractId, runId: run.id, reasons });
-      }
+      this.store.run("INSERT INTO verification_runs(id, contract_id, version, source_hashes_json, command, exit_code, output, revision, overlay, passed, created_at, status, reasons_json, finished_at) VALUES (?, ?, ?, ?, ?, -1, '', ?, 0, 0, ?, 'running', '[]', NULL)",
+        run.id, contractId, run.version, JSON.stringify(startHashes), run.command, run.revision, started);
+      this.coordinator.emit('contract.verification_started', `${contractId} v${contract.version}: ${run.command}`, { contractId, runId: run.id, version: contract.version, command: run.command });
     });
+    const [bin, ...args] = run.command.split(/\s+/);
+    const done = new Promise<VerificationRun>(resolve => {
+      const chunks: Buffer[] = [];
+      let size = 0; let dropped = 0; let timedOut = false; let settled = false;
+      const collect = (chunk: Buffer) => {
+        chunks.push(chunk); size += chunk.length;
+        while (size > this.outputLimit && chunks.length) {
+          const head = chunks[0]!; const excess = size - this.outputLimit;
+          if (head.length <= excess) { chunks.shift(); size -= head.length; dropped += head.length; }
+          else { chunks[0] = head.subarray(excess); size -= excess; dropped += excess; }
+        }
+      };
+      const output = () => `${dropped ? `[output truncated: first ${dropped} bytes dropped]\n` : ''}${Buffer.concat(chunks).toString('utf8')}`;
+      let child: ChildProcess;
+      let killTimer: NodeJS.Timeout | undefined;
+      const settle = (exitCode: number | null, failure: string | null) => {
+        if (settled) return;
+        settled = true;
+        if (killTimer) clearTimeout(killTimer);
+        resolve(this.finishRun(run, { workspaceId: session.workspaceId, files, startHashes, exitCode, failure, timedOut, output: output() }));
+      };
+      // Process group so a timeout also kills grandchildren (npm -> node --test -> workers).
+      const group = process.platform !== 'win32';
+      const kill = (signal: NodeJS.Signals) => { try { if (group && child.pid) process.kill(-child.pid, signal); else child.kill(signal); } catch { /* already gone */ } };
+      try {
+        child = spawn(bin!, args, { cwd: graph.root, env: verificationEnv(), stdio: ['ignore', 'pipe', 'pipe'], detached: group });
+      } catch (error) {
+        settle(null, `could not start ${bin}: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+      child.stdout!.on('data', collect);
+      child.stderr!.on('data', collect);
+      const timer = setTimeout(() => { timedOut = true; kill('SIGTERM'); killTimer = setTimeout(() => kill('SIGKILL'), 2_000); }, this.timeoutMs);
+      child.once('error', error => { clearTimeout(timer); settle(null, `could not start ${bin}: ${error.message}`); });
+      child.once('close', code => { clearTimeout(timer); settle(code, null); });
+    }).finally(() => { this.inFlight.delete(run.id); });
+    this.inFlight.set(run.id, { contractId, command: run.command, done });
     return run;
   }
+
+  /** Records the outcome of a finished child process. Never throws: a failure here is logged and reported as 'error'. */
+  private finishRun(run: VerificationRun, outcome: { workspaceId: string; files: string[]; startHashes: Record<string, string>; exitCode: number | null; failure: string | null; timedOut: boolean; output: string }): VerificationRun {
+    const finishedAt = this.clock();
+    try {
+      // Pick up edits made while the command ran (bumps the revision and re-derives evidence when files changed).
+      this.sync(outcome.workspaceId);
+      this.refresh([run.contractId]);
+      const contract = this.coordinator.contract(run.contractId);
+      const graph = this.graphFor(outcome.workspaceId);
+      const endHashes = graph.hashesFor(outcome.files);
+      const changed = outcome.files.filter(file => outcome.startHashes[file] !== endHashes[file]);
+      const real = this.real(contract);
+      const implementation = this.implementation(contract);
+      const reasons: string[] = [];
+      let status: VerificationRun['status'];
+      if (outcome.failure) { status = 'error'; reasons.push(outcome.failure); }
+      else {
+        if (outcome.timedOut) reasons.push(`timed out after ${Math.round(this.timeoutMs / 1000)} s and was killed`);
+        else if (outcome.exitCode !== 0) reasons.push(outcome.exitCode === null ? 'terminated by a signal' : `exit code ${outcome.exitCode}`);
+        if (!real.ok) reasons.push(`real type-check failed: ${real.diagnostics.slice(0, 3).map(d => `${d.file}:${d.line} ${d.message}`).join(' | ')}`);
+        if (!implementation.ok) reasons.push(`not implemented: ${implementation.reason}`);
+        const moved = [
+          changed.length ? `files changed during the run: ${changed.join(', ')}` : null,
+          contract.version !== run.version ? `contract revised from v${run.version} to v${contract.version} during the run` : null,
+          LIVE.has(contract.status) ? null : `contract became ${contract.status} during the run`,
+        ].filter((reason): reason is string => reason !== null);
+        if (moved.length) { status = 'inconclusive'; reasons.unshift(...moved); }
+        else status = reasons.length ? 'failed' : 'passed';
+      }
+      const done: VerificationRun = { ...run, status, exitCode: outcome.failure ? null : outcome.exitCode, passed: status === 'passed', output: outcome.output,
+        revision: this.coordinator.revision(), reasons, finishedAt };
+      this.store.transaction(() => {
+        this.store.run('UPDATE verification_runs SET status = ?, exit_code = ?, output = ?, revision = ?, passed = ?, reasons_json = ?, finished_at = ? WHERE id = ?',
+          status, done.exitCode ?? -1, done.output, done.revision, done.passed ? 1 : 0, JSON.stringify(reasons), finishedAt, run.id);
+        const payload = { contractId: run.contractId, runId: run.id, version: run.version, status, reasons };
+        const detail = `${run.contractId} v${run.version}: ${reasons.join('; ')}`;
+        if (status === 'passed') {
+          this.coordinator.updateContract(run.contractId, 'verified', { ...contract.evidence, implemented: implementation.evidence, verification: done, staleReason: undefined }, `${run.command} exit 0 at revision ${done.revision}`);
+        } else if (status === 'inconclusive') {
+          // Evidence is left as it was: a run over moving files proves nothing either way.
+          this.coordinator.emit('contract.verification_inconclusive', detail, payload);
+        } else {
+          if (contract.status === 'verified')
+            this.coordinator.updateContract(run.contractId, implementation.ok ? 'implemented' : 'accepted', { ...contract.evidence, verification: done, staleReason: `latest verification ${status}` }, `latest verification ${status}; no longer verified`);
+          else this.coordinator.setEvidence(run.contractId, { ...contract.evidence, verification: done });
+          this.coordinator.emit('contract.verification_failed', detail, payload);
+        }
+      });
+      return done;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Hive: recording verification ${run.id} failed: ${message}`);
+      const failed: VerificationRun = { ...run, status: 'error', exitCode: outcome.exitCode, passed: false, output: outcome.output, reasons: [`recording the result failed: ${message}`], finishedAt };
+      try {
+        this.store.run('UPDATE verification_runs SET status = ?, exit_code = ?, output = ?, passed = 0, reasons_json = ?, finished_at = ? WHERE id = ?',
+          'error', failed.exitCode ?? -1, failed.output, JSON.stringify(failed.reasons), finishedAt, run.id);
+      } catch { /* store unavailable (closed during shutdown) */ }
+      return failed;
+    }
+  }
+
+  /** Number of verification child processes still running (used to drain before shutdown). */
+  get inFlightVerifications(): number { return this.inFlight.size; }
+  /** Resolves once every in-flight verification has finished and been recorded. */
+  async drain(): Promise<void> { await Promise.allSettled([...this.inFlight.values()].map(flight => flight.done)); }
+
+  run(runId: string): VerificationRun | undefined {
+    const row = this.store.get<RunRow>('SELECT * FROM verification_runs WHERE id = ?', runId);
+    return row ? rowToRun(row) : undefined;
+  }
+  /** Current state of a run; throws for an unknown id. */
+  status(runId: string): VerificationRun {
+    const run = this.run(runId);
+    if (!run) throw new Error(`Unknown verification run ${runId}`);
+    return run;
+  }
+  /** Waits up to timeoutMs for a run to finish; returns it as 'running' (pending, not failed) when time runs out. */
+  async waitForRun(runId: string, timeoutMs = 90_000): Promise<VerificationRun> {
+    const flight = this.inFlight.get(runId);
+    if (!flight) return this.status(runId);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), timeoutMs); });
+    try {
+      const finished = await Promise.race([flight.done, timeout]);
+      return finished ?? this.status(runId);
+    } finally { clearTimeout(timer); }
+  }
   runs(contractId: string): VerificationRun[] {
-    return this.store.all<{ id: string; version: number; source_hashes_json: string; command: string; exit_code: number; output: string; revision: number; passed: number; created_at: number }>(
-      'SELECT * FROM verification_runs WHERE contract_id = ? ORDER BY created_at', contractId)
-      .map(row => ({ id: row.id, contractId, version: Number(row.version), command: row.command, exitCode: Number(row.exit_code), passed: Boolean(row.passed), overlay: false,
-        revision: Number(row.revision), sourceHashes: JSON.parse(row.source_hashes_json) as Record<string, string>, output: row.output, at: Number(row.created_at) }));
+    return this.store.all<RunRow>('SELECT * FROM verification_runs WHERE contract_id = ? ORDER BY created_at, rowid', contractId).map(rowToRun);
   }
 
   /** Agreement gate: a producer symbol under a proposed (not yet accepted) contract cannot be changed by a Hive operation. */
