@@ -4,7 +4,7 @@
 // Screens read it through useHive() (useMock() is the same hook, kept for existing screens).
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import {
-  HiveClient, LiveFeed, connectionAt, normalizeSnapshot, sessionNames, viewRunToRun, viewToSnapshot,
+  HiveClient, LiveFeed, connectionAt, normalizeSnapshot, sessionNames, sessionTokenStore, viewRunToRun, viewToSnapshot,
   type EventItem, type LiveState, type Me, type MemberSummary, type TokenRecord, type ViewResponse,
 } from '@/api';
 import {
@@ -36,7 +36,7 @@ function writeStorage(storage: 'local' | 'session', key: string, value: string |
 }
 
 /** The token this browser tab signed in with (sessionStorage only), so Connect can fill it into a member's own setup command. */
-export function signedInToken(): string | null { return readStorage('session', MOCK_TOKEN_KEY); }
+export function signedInToken(): string | null { return sessionTokenStore().get() ?? readStorage('session', MOCK_TOKEN_KEY); }
 
 /** `?mock=1` turns the prototype data on for this tab, `?mock=0` turns it off; default is live. */
 export function detectMode(): StoreMode {
