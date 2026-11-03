@@ -13,9 +13,14 @@
 .main { min-inline-size: 0; }
 
 /* Desktop scrubber: same construction as the section rail, labels sit under the preview card. */
-.scrubber {
+.side {
   position: sticky;
   top: calc(var(--header-height) + var(--space-6));
+  z-index: 3;
+}
+.sideNarrow { display: grid; gap: var(--space-3); min-inline-size: 0; }
+.scrubber {
+  position: relative;
   block-size: 35.5rem;
   inline-size: 24rem;
   z-index: 3;
@@ -177,6 +182,32 @@
 .diffLine[data-kind="add"] { background: var(--accent-subtle); }
 .diffLine[data-kind="del"] { background: color-mix(in oklab, var(--danger) 12%, transparent); }
 
+.fields { margin: 0; display: grid; gap: var(--space-2); font-size: var(--text-sm); }
+.fields div { display: grid; grid-template-columns: minmax(0, 10rem) minmax(0, 1fr); gap: var(--space-4); align-items: baseline; }
+.fields dt { color: var(--text-secondary); }
+.fields dd { margin: 0; min-inline-size: 0; overflow-wrap: anywhere; }
+.fieldPre {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-block-size: 16rem;
+  overflow: auto;
+}
+.verdict[data-verdict="inconclusive"] { color: var(--warning); }
+.verdict[data-verdict="error"] { color: var(--danger); }
+
+/* Paging bar above the rail */
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-inline-size: 0; }
+.pagerText { color: var(--text-secondary); font-size: var(--text-sm); font-variant-numeric: tabular-nums; margin-inline-end: auto; }
+.pagerError { color: var(--danger); font-size: var(--text-sm); inline-size: 100%; }
+.side { display: grid; gap: var(--space-4); align-content: start; min-inline-size: 0; }
+
 .hashes { margin: 0; display: grid; gap: var(--space-2); font-size: var(--text-sm); }
 .hashes div { display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr); gap: var(--space-4); align-items: baseline; }
 .hashes dd { margin: 0; color: var(--text-secondary); }
@@ -185,7 +216,7 @@
   .card { padding: var(--space-5); border-radius: var(--radius-control); gap: var(--space-6); }
   .cardTitle { font-size: var(--text-xl); }
   .cardLead { font-size: var(--text-base); }
-  .hashes div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .hashes div, .fields div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

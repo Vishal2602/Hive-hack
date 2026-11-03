@@ -1,63 +1,55 @@
-// Derived view of members and their tokens for the Members screen. Pure functions over mock store data.
-import { CLIENTS, splitSessionName, type AccessToken, type ClientId, type Member, type Role } from '@/mock';
+// Store glue for the Members screen: turns the live store (or ?mock=1 prototype data) into access rows,
+// and wraps the admin token actions so failures reach the UI instead of being swallowed.
+import { useCallback, useMemo } from 'react';
+import { CLIENTS, type ClientId } from '@/mock';
+import { useHive, type HiveStore } from '@/shell';
+import type { TokenRecord } from '@/api';
+import { buildAccess, type Access, type AccessInput, type SessionLike } from './access';
 
-/** Where "Invite member" lands: the invite step of the connect flow. */
+/** Where "Invite member" lands: the token step (step 2) of the connect flow. */
 export const INVITE_PATH = '/connect?step=invite';
 
-/** A token used within this window counts as the member being active right now. */
-export const ACTIVE_WINDOW_MS = 5 * 60_000;
-
-export type MemberStatus = 'active' | 'idle' | 'no-access';
-
-export interface AgentRef { id: string; name: string }
-
-export interface MemberRow {
-  member: Member;
-  /** Active tokens first (newest first), then revoked tokens (most recently revoked first). */
-  tokens: AccessToken[];
-  activeTokenCount: number;
-  agents: AgentRef[];
-  lastActiveAt: number | null;
-  status: MemberStatus;
+export function clientName(client: string | null): string {
+  if (!client) return 'Unknown client';
+  return CLIENTS.find(c => c.id === (client as ClientId))?.name ?? client;
 }
 
-export function clientName(client: ClientId | null): string {
-  if (!client) return 'No client yet';
-  return CLIENTS.find(c => c.id === client)?.name ?? client;
+/** Prototype data lifted into the live shapes, so ?mock=1 renders through the same code path. */
+function mockInputs(store: Pick<HiveStore, 'tokens' | 'members' | 'me' | 'sessionName'>): Pick<AccessInput, 'me' | 'tokens' | 'sessions'> {
+  const nameOf = (memberId: string) => store.members.find(m => m.id === memberId)?.name ?? memberId;
+  const tokens: TokenRecord[] = store.tokens.map(t => ({ id: t.id, label: t.label, member: nameOf(t.memberId), role: t.role, prefix: t.prefix,
+    createdBy: '', createdAt: t.createdAt, lastUsedAt: t.lastUsedAt, revokedAt: t.revokedAt }));
+  const sessions: SessionLike[] = store.tokens.flatMap(t => t.agentSessionIds.map(id => ({
+    id, name: store.sessionName(id), client: t.client, member: nameOf(t.memberId), tokenId: t.id })));
+  const me = store.me;
+  const myToken = me ? store.tokens.find(t => t.memberId === me.id && !t.revokedAt) : undefined;
+  return { me: me ? { role: me.role, member: me.name, tokenId: myToken?.id ?? null } : null, tokens, sessions };
 }
 
-export function agentRefs(sessionIds: string[], sessionName: (id: string) => string): AgentRef[] {
-  return sessionIds.map(id => ({ id, name: splitSessionName(sessionName(id)).agentName || sessionName(id) }));
+/** Access rows for the signed-in role, recomputed when the store's data or `now` changes. */
+export function useAccess(now: number): Access {
+  const { mode, identity, tokenRecords, memberSummaries, snapshot, client, tokens, members, me, sessionName } = useHive();
+  const signedInToken = mode === 'live' && identity?.tokenId ? client.token : null;
+  const sessions = snapshot.sessions;
+  return useMemo(() => (mode === 'mock'
+    ? buildAccess({ ...mockInputs({ tokens, members, me, sessionName }), now })
+    : buildAccess({ me: identity, tokens: tokenRecords, sessions, memberNames: memberSummaries.map(m => m.member), signedInToken, now })),
+  [mode, identity, tokenRecords, memberSummaries, sessions, signedInToken, now, tokens, members, me, sessionName]);
 }
 
-export function buildRows(members: Member[], tokens: AccessToken[], sessionName: (id: string) => string, now: number): MemberRow[] {
-  return members.map(member => {
-    const own = tokens.filter(t => t.memberId === member.id);
-    const active = own.filter(t => !t.revokedAt).sort((a, b) => b.createdAt - a.createdAt);
-    const revoked = own.filter(t => t.revokedAt).sort((a, b) => (b.revokedAt ?? 0) - (a.revokedAt ?? 0));
-    const used = own.map(t => t.lastUsedAt).filter((v): v is number => v !== null);
-    const lastActiveAt = used.length ? Math.max(...used) : null;
-    const recent = active.some(t => t.lastUsedAt !== null && now - t.lastUsedAt < ACTIVE_WINDOW_MS);
-    const status: MemberStatus = active.length === 0 ? 'no-access' : recent ? 'active' : 'idle';
-    return {
-      member,
-      tokens: [...active, ...revoked],
-      activeTokenCount: active.length,
-      agents: agentRefs(own.flatMap(t => t.agentSessionIds), sessionName),
-      lastActiveAt,
-      status,
-    };
-  });
+/**
+ * Rename and revoke. Live mode calls the daemon directly so a refusal (403, unknown token, offline)
+ * rejects and the control shows it; then members and tokens refresh at once.
+ */
+export function useTokenActions() {
+  const { mode, client, refresh, revokeToken, renameToken } = useHive();
+  const revoke = useCallback(async (tokenId: string) => {
+    if (mode === 'mock') return revokeToken(tokenId);
+    try { await client.tokenRevoke(tokenId); } finally { void refresh({ access: true }); }
+  }, [mode, client, refresh, revokeToken]);
+  const rename = useCallback(async (tokenId: string, label: string) => {
+    if (mode === 'mock') return renameToken(tokenId, label.trim());
+    try { await client.tokenRename(tokenId, label.trim()); } finally { void refresh({ access: true }); }
+  }, [mode, client, refresh, renameToken]);
+  return { revoke, rename };
 }
-
-/** Admins manage everyone; members manage their own tokens; viewers manage nothing. */
-export function canManage(role: Role, meId: string | undefined, memberId: string): boolean {
-  if (role === 'admin') return true;
-  if (role === 'member') return meId === memberId;
-  return false;
-}
-
-export const ROLE_ORDER: Role[] = ['admin', 'member', 'viewer'];
-
-/** "1 agent", "3 agents". */
-export const countAgents = (n: number) => `${n} ${n === 1 ? 'agent' : 'agents'}`;

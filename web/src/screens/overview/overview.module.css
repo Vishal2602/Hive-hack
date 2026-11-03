@@ -43,6 +43,8 @@
 .stepStatus { max-inline-size: 70ch; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.55; overflow-wrap: anywhere; }
 .stepPosition { color: var(--foreground); font-weight: 500; }
 .stepConflict { color: var(--danger); }
+/* Warnings: readable text weight instead of amber text, which is low contrast on light surfaces. */
+.stepAttention { color: var(--foreground); font-weight: 500; }
 
 .facts { display: grid; gap: var(--space-4); margin: 0; }
 .facts > div { display: grid; gap: var(--space-1); }

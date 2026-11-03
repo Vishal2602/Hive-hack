@@ -216,7 +216,24 @@
 .runIcon { margin-block-start: 2px; color: var(--text-secondary); }
 .run[data-verdict="proof"] .runIcon,
 .run[data-verdict="proof"] .runTitle { color: var(--success); }
-.run[data-verdict="failed"] .runIcon { color: var(--danger); }
+.run[data-verdict="failed"] .runIcon,
+.run[data-verdict="error"] .runIcon { color: var(--danger); }
+.run[data-verdict="inconclusive"] .runIcon { color: var(--warning); }
+.run[data-verdict="running"] { border-style: dashed; }
+.run[data-verdict="running"] .runIcon { color: var(--accent-strong); }
+.runStatus:empty { display: none; }
+
+/* List row: latest check line */
+.rowCheck { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--text-sm); }
+.rowCheck code { color: var(--foreground); overflow-wrap: anywhere; }
+.rowCheck[data-verdict="proof"] { color: var(--success); }
+.rowCheck[data-verdict="failed"], .rowCheck[data-verdict="error"] { color: var(--danger); }
+
+/* Earlier versions in the signatures section */
+.versions { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.versionItem { display: grid; gap: var(--space-2); padding-block-start: var(--space-3); border-block-start: 1px solid var(--border); min-inline-size: 0; }
+.versionHead { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); font-size: var(--text-sm); }
+.versionHead strong { font-weight: 600; }
 .runTitleBlock { display: grid; gap: var(--space-1); }
 .runTitle { font-size: var(--text-base); font-weight: 600; font-family: var(--font-body); letter-spacing: 0; }
 .runNote { color: var(--text-secondary); font-size: var(--text-sm); }

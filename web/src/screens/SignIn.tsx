@@ -5,39 +5,51 @@ import { CircleAlert } from 'lucide-react';
 import { Button } from '@/components/arc/button/button';
 import { PasswordField } from '@/components/arc/password-field/password-field';
 import { DEMO_TOKEN } from '@/mock';
-import { Standalone, useMock } from '@/shell';
+import { Standalone, detectMode, useHive } from '@/shell';
+import { normalizePastedToken } from './connect/logic';
 import styles from './signin/SignIn.module.css';
 
-const showDemoControls = () => import.meta.env.DEV || new URLSearchParams(window.location.search).has('demo');
+/** Shown after the stored token was refused with 401 (revoked or replaced) while the app was open. */
+const REVOKED_MESSAGE = 'Hive no longer accepts your token. It may have been revoked; ask an admin for a new one.';
+
+const showDemoControls = () => detectMode() === 'mock';
 
 export default function SignIn() {
-  const { me, signIn, workspace } = useMock();
+  const { me, signIn, workspace, signedOutReason } = useHive();
   const navigate = useNavigate();
   const location = useLocation();
   const errorId = useId();
   const [token, setToken] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => (signedOutReason === 'unauthorized' ? REVOKED_MESSAGE : null));
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => { document.title = 'Sign in · Hive'; }, []);
+
+  // A 401 can arrive while this screen is already open (another tab revoked the token).
+  useEffect(() => { if (signedOutReason === 'unauthorized') setError(REVOKED_MESSAGE); }, [signedOutReason]);
 
   const from = (location.state as { from?: string } | null)?.from;
   const destination = from && from !== '/signin' && from !== '/join' ? from : '/';
 
   if (me) return <Navigate to={destination} replace />;
 
-  function attempt(value: string) {
-    if (!value.trim()) {
+  async function attempt(raw: string) {
+    const value = normalizePastedToken(raw);
+    if (!value) {
       setError('Paste your access token to continue.');
       return;
     }
-    const result = signIn(value);
+    if (busy) return;
+    setBusy(true);
+    const result = await signIn(value);
+    setBusy(false);
     if (result.ok) navigate(destination, { replace: true });
     else setError(result.reason);
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    attempt(token);
+    void attempt(token);
   }
 
   return (
@@ -47,7 +59,7 @@ export default function SignIn() {
           <span className={styles.wordmark}>Hive</span>
           <div className={styles.heading}>
             <h1 id="signin-title" className={styles.title}>Sign in</h1>
-            <p className={styles.lede}>{`Paste the access token an admin gave you for ${workspace.name}. It decides what you can see and which agents you can connect.`}</p>
+            <p className={styles.lede}>{`Paste the access token an admin gave you for ${workspace.name || 'this workspace'}. It decides what you can see and which agents you can connect.`}</p>
           </div>
 
           <form className={styles.form} onSubmit={onSubmit} noValidate>
@@ -70,7 +82,7 @@ export default function SignIn() {
                 <span>{error}</span>
               </p>
             )}
-            <Button type="submit" size="lg" className={styles.submit}>Continue</Button>
+            <Button type="submit" size="lg" className={styles.submit} disabled={busy}>{busy ? 'Checking…' : 'Continue'}</Button>
           </form>
 
           <div className={styles.invite}>
@@ -82,7 +94,7 @@ export default function SignIn() {
         {showDemoControls() && (
           <div className={styles.demo}>
             <span>Prototype only</span>
-            <Button variant="ghost" size="sm" onClick={() => { setToken(DEMO_TOKEN); attempt(DEMO_TOKEN); }}>
+            <Button variant="ghost" size="sm" onClick={() => { setToken(DEMO_TOKEN); void attempt(DEMO_TOKEN); }}>
               Sign in as Sanika with the demo token
             </Button>
           </div>

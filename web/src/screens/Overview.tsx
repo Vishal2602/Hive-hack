@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { CircleCheck, PlugZap } from 'lucide-react';
 import { Button } from '@/components/arc/button/button';
 import { EmptyState } from '@/components/arc/empty-state/empty-state';
-import { ModelNotice, Page, useMock, useNow } from '@/shell';
+import { ModelNotice, Page, useHive, useNow } from '@/shell';
 import { AgentCard } from './overview/AgentCard';
 import { AgreementsRail } from './overview/AgreementsRail';
 import { ConflictCard } from './overview/ConflictCard';
@@ -12,10 +12,16 @@ import { currentConflict } from './overview/derive';
 import styles from './overview/overview.module.css';
 
 export default function Overview() {
-  const { snapshot, agents, workspace, sessionName, runsFor } = useMock();
+  const { snapshot, view, agents, workspace, sessionName, runsFor, readOnly } = useHive();
   const navigate = useNavigate();
   const now = useNow(1000);
-  const conflict = useMemo(() => currentConflict(snapshot, sessionName, runsFor), [snapshot, sessionName, runsFor]);
+  // Viewers poll /api/view: the same layout, without intent details, leases, excerpts or model findings.
+  const viewer = view !== null;
+  const viewerAnalysis = view?.analysis?.findings ?? 0;
+  const conflict = useMemo(
+    () => currentConflict(snapshot, sessionName, runsFor, viewer ? { analysisFindings: viewerAnalysis } : null),
+    [snapshot, sessionName, runsFor, viewer, viewerAnalysis],
+  );
 
   const revision = snapshot.repository.revision;
   const active = agents.filter(a => a.session.status === 'active').length;
@@ -31,8 +37,10 @@ export default function Overview() {
           label="No agents"
           icon={<PlugZap />}
           title="No agents have registered yet"
-          description="Members can already sign in. Connect a coding tool with a member token and its agent shows up here as soon as it registers."
-          action={<Button variant="primary" onClick={() => navigate('/connect')}>Connect an agent</Button>}
+          description={readOnly
+            ? 'Agents show up here as soon as a member connects a coding tool and it registers.'
+            : 'Members can already sign in. Connect a coding tool with a member token and its agent shows up here as soon as it registers.'}
+          action={readOnly ? undefined : <Button variant="primary" onClick={() => navigate('/connect')}>Connect an agent</Button>}
         />
       </Page>
     );
@@ -47,7 +55,7 @@ export default function Overview() {
       <ul className={styles.agentGrid}>
         {agents.map(agent => (
           <li key={agent.session.id}>
-            <AgentCard agent={agent} workspaceName={workspace.name} sessionName={sessionName} now={now} />
+            <AgentCard agent={agent} workspaceName={workspace.name} sessionName={sessionName} now={now} viewer={viewer} />
           </li>
         ))}
       </ul>
@@ -58,7 +66,7 @@ export default function Overview() {
     <Page
       title="Overview"
       description={description}
-      actions={<Button variant="secondary" onClick={() => navigate('/connect')}>Connect an agent</Button>}
+      actions={readOnly ? undefined : <Button variant="secondary" onClick={() => navigate('/connect')}>Connect an agent</Button>}
     >
       <ModelNotice />
 

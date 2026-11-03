@@ -1,6 +1,7 @@
 // Pure helpers that turn a Contract and its verification runs into plain-language states.
 // Everything here derives from snapshot data; nothing is invented for display.
-import type { Contract, ContractStatus, VerificationRun } from '@/mock';
+// Relative type-only import (not '@/mock') so the backend test suite can type-check and import this file.
+import type { Contract, ContractStatus, VerificationRun } from '../../../../src/domain/types.ts';
 
 export const STATE_LABEL: Record<ContractStatus, string> = {
   proposed: 'Proposed',
@@ -31,19 +32,31 @@ export function signatureFor(contract: Contract, sessionId: string): Signature {
 }
 
 export function signatureText(sig: Signature): string {
-  if (sig.kind === 'signed') return `Signed v${sig.version} · intent ${sig.intentRevision}`;
+  // Viewers do not receive intent revisions; 0 means "not shared", so it is left out.
+  if (sig.kind === 'signed') return sig.intentRevision > 0 ? `Signed v${sig.version} · intent ${sig.intentRevision}` : `Signed v${sig.version}`;
   if (sig.kind === 'outdated') return `Signed v${sig.version} only`;
   return 'Not signed';
+}
+
+/** Who signed one exact version, from acknowledgementDetails. */
+export function signersOf(contract: Contract, version: number): { sessionId: string; intentRevision: number; at: number }[] {
+  return contract.acknowledgementDetails.filter(a => a.version === version).sort((a, b) => a.at - b.at);
 }
 
 export function signedCount(contract: Contract): number {
   return contract.participants.filter(p => signatureFor(contract, p).kind === 'signed').length;
 }
 
-export type RunVerdict = 'proof' | 'overlay' | 'failed';
+export type RunVerdict = 'proof' | 'overlay' | 'failed' | 'running' | 'inconclusive' | 'error';
 
-/** Only a passing run on applied code is proof. A pass on a staged overlay is a rehearsal. */
+/**
+ * Only a passing run on applied code is proof. A pass on a staged overlay is a rehearsal. A run whose
+ * files changed while it ran is inconclusive (proves nothing either way); `error` means it never ran properly.
+ */
 export function runVerdict(run: VerificationRun): RunVerdict {
+  if (run.status === 'running') return 'running';
+  if (run.status === 'inconclusive') return 'inconclusive';
+  if (run.status === 'error') return 'error';
   if (!run.passed) return 'failed';
   return run.overlay ? 'overlay' : 'proof';
 }
@@ -52,19 +65,35 @@ export const VERDICT_TITLE: Record<RunVerdict, string> = {
   proof: 'Passed on applied code',
   overlay: 'Passed on staged changes',
   failed: 'Failed',
+  running: 'Running',
+  inconclusive: 'Inconclusive',
+  error: 'Could not run',
 };
+
+/** "exit 1", "no exit code" (killed by a signal, never started, or still running). */
+export const exitText = (run: VerificationRun) => (run.exitCode === null ? 'no exit code' : `exit ${run.exitCode}`);
 
 export function verdictNote(run: VerificationRun): string {
   const verdict = runVerdict(run);
+  const reasons = run.reasons.length ? run.reasons.join('; ') : null;
   if (verdict === 'proof') return `Counts as verification for version ${run.version}.`;
   if (verdict === 'overlay') return 'Does not count. It ran against changes that are staged but not applied.';
-  return `Exited ${run.exitCode}, so version ${run.version} is not verified.`;
+  if (verdict === 'running') return `Started at revision ${run.revision}. The result appears here when the command finishes.`;
+  if (verdict === 'inconclusive') return `Proves nothing either way: ${reasons ?? 'the checked code moved while it ran'}.`;
+  if (verdict === 'error') return `Hive could not complete the check: ${reasons ?? 'unknown error'}.`;
+  return `${reasons ? `${reasons[0]!.toUpperCase()}${reasons.slice(1)}` : `Exited ${run.exitCode}`}, so version ${run.version} is not verified.`;
 }
 
-/** Latest run on applied code, if any. */
+/** Latest finished run on applied code, if any. Running runs have no outcome yet. */
 export function latestAppliedRun(runs: VerificationRun[]): VerificationRun | null {
-  const applied = runs.filter(r => !r.overlay);
-  return applied.length ? applied[applied.length - 1] : null;
+  const applied = runs.filter(r => !r.overlay && r.status !== 'running');
+  return applied.length ? applied[applied.length - 1]! : null;
+}
+
+/** The newest run still in progress, if any. */
+export function runningRun(runs: VerificationRun[]): VerificationRun | null {
+  const running = runs.filter(r => r.status === 'running');
+  return running.length ? running[running.length - 1]! : null;
 }
 
 /**
@@ -100,7 +129,9 @@ export function standingSentence(contract: Contract, runs: VerificationRun[]): s
     case 'accepted':
       return `Everyone signed version ${contract.version}. The compiler has not found code that matches the declaration yet.`;
     case 'implemented':
-      if (applied && !applied.passed) return `Everyone signed version ${contract.version} and the code matches the declaration. It is not verified: the latest test run on applied code exited ${applied.exitCode}.`;
+      if (runningRun(runs)) return `Everyone signed version ${contract.version} and the code matches the declaration. A test run is in progress; it is not verified until that run passes.`;
+      if (applied && applied.status === 'inconclusive') return `Everyone signed version ${contract.version} and the code matches the declaration. It is not verified: the latest test run was inconclusive because the code moved while it ran.`;
+      if (applied && !applied.passed) return `Everyone signed version ${contract.version} and the code matches the declaration. It is not verified: the latest test run on applied code ended with ${exitText(applied)}.`;
       return `Everyone signed version ${contract.version} and the code matches the declaration. It is not verified until a test run on applied code passes.`;
     case 'verified':
       return applied

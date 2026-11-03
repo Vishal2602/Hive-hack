@@ -5,11 +5,12 @@ import { Button } from '@/components/arc/button/button';
 import { EmptyState } from '@/components/arc/empty-state/empty-state';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import { Select } from '@/components/arc/select/select';
-import { Page, formatRelative, parseSymbolKey, useMediaQuery, useMock, useNow } from '@/shell';
-import type { Contract, ContractStatus } from '@/mock';
+import { Page, formatRelative, parseSymbolKey, useHive, useMediaQuery, useNow } from '@/shell';
+import type { Contract, ContractStatus, HiveEvent } from '@/mock';
 import { ParticipantList } from './agreements/Participants';
 import { StateBadge } from './agreements/StateBadge';
-import { STATE_ORDER, signedCount } from './agreements/model';
+import { STATE_ORDER, VERDICT_TITLE, exitText, runVerdict, signedCount } from './agreements/model';
+import { unfinishedRunIds } from './agreements/runs';
 import styles from './agreements/agreements.module.css';
 
 type Filter = 'all' | 'open' | 'verified' | 'stale' | 'closed';
@@ -31,7 +32,7 @@ const FILTER_EMPTY: Record<Filter, { title: string; description: string }> = {
 };
 
 export default function Agreements() {
-  const { snapshot, sessionName } = useMock();
+  const { snapshot, sessionName, events } = useHive();
   const navigate = useNavigate();
   const now = useNow(15_000);
   const phone = useMediaQuery('(max-width: 479px)');
@@ -101,7 +102,7 @@ export default function Agreements() {
           ) : (
             <ul className={styles.list}>
               {visible.map(contract => (
-                <AgreementRow key={contract.id} contract={contract} sessionName={sessionName} now={now} />
+                <AgreementRow key={contract.id} contract={contract} events={events} sessionName={sessionName} now={now} />
               ))}
             </ul>
           )}
@@ -111,7 +112,7 @@ export default function Agreements() {
   );
 }
 
-function AgreementRow({ contract, sessionName, now }: { contract: Contract; sessionName: (id: string) => string; now: number }) {
+function AgreementRow({ contract, events, sessionName, now }: { contract: Contract; events: HiveEvent[]; sessionName: (id: string) => string; now: number }) {
   const producer = contract.producerSymbol ? parseSymbolKey(contract.producerSymbol) : null;
   const signed = signedCount(contract);
   return (
@@ -133,8 +134,27 @@ function AgreementRow({ contract, sessionName, now }: { contract: Contract; sess
           <span>{signed} of {contract.participants.length} signed this version</span>
         </p>
         <ParticipantList contract={contract} sessionName={sessionName} />
+        <LatestCheck contract={contract} events={events} />
       </div>
       <p className={styles.rowTime}>Updated {formatRelative(contract.updatedAt, now)}</p>
     </li>
+  );
+}
+
+/** The latest test run on record, or a run in progress (known from its started event). */
+function LatestCheck({ contract, events }: { contract: Contract; events: HiveEvent[] }) {
+  const recorded = contract.evidence.verification ?? null;
+  const running = unfinishedRunIds(events, contract.id, recorded?.id ?? null)[0];
+  if (running) {
+    const started = [...events].reverse().find(e => e.type === 'contract.verification_started' && e.payload?.runId === running);
+    const command = typeof started?.payload?.command === 'string' ? started.payload.command : 'A test command';
+    return <p className={styles.rowCheck} data-verdict="running">Running <code>{command}</code> now. No result yet.</p>;
+  }
+  if (!recorded) return <p className={styles.rowCheck}>No test run yet.</p>;
+  const verdict = runVerdict(recorded);
+  return (
+    <p className={styles.rowCheck} data-verdict={verdict}>
+      Latest check: <code>{recorded.command}</code> {VERDICT_TITLE[verdict].toLowerCase()}, {exitText(recorded)} at revision {recorded.revision}.
+    </p>
   );
 }

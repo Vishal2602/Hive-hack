@@ -187,3 +187,21 @@ test('field_required claim: violations by direct edit are reported; staged opera
     assert.match(reasons[0]!, /Claim .* violated: .*quantity: number \(field missing\)/);
   } finally { cleanup(); }
 });
+
+test('event order: acceptance is logged after every signature of that version, including the final one', () => {
+  const { service, a, b, cleanup } = setup();
+  try {
+    const contract = service.propose(a.id, { title: 'v1', declaration: DECLARATION, participants: [b.id], producerSymbol: PRODUCER });
+    service.coordinator.acknowledge(b.id, contract.id, 1);
+    service.coordinator.acknowledge(a.id, contract.id, 1);
+    const forVersion = service.coordinator.events().filter(e => e.payload?.contractId === contract.id && e.payload?.version === 1);
+    const acknowledged = forVersion.filter(e => e.type === 'contract.acknowledged');
+    const accepted = forVersion.filter(e => e.type === 'contract.accepted');
+    assert.equal(acknowledged.length, 2);
+    assert.equal(accepted.length, 1, 'accepted exactly once');
+    for (const ack of acknowledged) assert.ok(accepted[0]!.seq > ack.seq, `accepted seq ${accepted[0]!.seq} must follow acknowledged seq ${ack.seq}`);
+    // A repeat signature after acceptance must not emit a second acceptance.
+    service.coordinator.acknowledge(a.id, contract.id, 1);
+    assert.equal(service.coordinator.events().filter(e => e.type === 'contract.accepted' && e.payload?.contractId === contract.id).length, 1);
+  } finally { cleanup(); }
+});

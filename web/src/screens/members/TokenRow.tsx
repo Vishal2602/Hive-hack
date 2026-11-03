@@ -1,39 +1,54 @@
-// One access token: label, safe prefix, client, dates, agents it created, and revoke for those allowed to.
+// One access token: label, safe prefix, dates, the agents it registered, and rename / revoke for admins.
+// Labels, member and agent names come from people and agents: rendered as text only.
 import { KeyRound } from 'lucide-react';
 import { ConfirmMorph } from '@/components/arc/confirm-morph/confirm-morph';
 import { InlineEdit } from '@/components/arc/inline-edit/inline-edit';
 import { useToastStack } from '@/components/arc/toast-stack/toast-stack';
-import { formatDateTime, formatRelative, useMock } from '@/shell';
-import type { AccessToken } from '@/mock';
-import { agentRefs, clientName, countAgents } from './model';
+import { formatDateTime, formatRelative } from '@/shell';
+import { countAgents, validateLabel, type TokenView } from './access';
+import { useTokenActions } from './model';
 import styles from './members.module.css';
 
 interface TokenRowProps {
-  token: AccessToken;
+  token: TokenView;
   manageable: boolean;
   offline: boolean;
   now: number;
 }
 
-const wait = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms));
+const errorText = (error: unknown) => (error instanceof Error && error.message ? error.message : 'Hive did not accept the change.');
 
 export function TokenRow({ token, manageable, offline, now }: TokenRowProps) {
-  const { revokeToken, renameToken, sessionName } = useMock();
+  const { revoke, rename } = useTokenActions();
   const { toast } = useToastStack();
   const revoked = token.revokedAt !== null;
-  const agents = agentRefs(token.agentSessionIds, sessionName);
+  const editable = manageable && !revoked && !offline;
 
-  const revoke = async () => {
-    // Give the in-place "Revoking" face a moment before the row changes to its revoked state.
-    await wait(600);
-    revokeToken(token.id);
+  const confirmRevoke = async () => {
+    try {
+      await revoke(token.id);
+    } catch (error) {
+      toast({ type: 'error', title: `Could not revoke ${token.label}`, description: errorText(error) });
+      throw error;
+    }
     toast({
       type: 'success',
       title: `Revoked ${token.label}`,
-      description: agents.length
-        ? `${countAgents(agents.length)} using it lose access on their next request.`
-        : 'It can no longer be used to connect an agent.',
+      description: token.current
+        ? 'This was your sign-in token. You will be signed out on the next refresh.'
+        : token.agents.length
+          ? `${countAgents(token.agents.length)} using it lose access on their next request.`
+          : 'It can no longer be used to connect an agent or sign in.',
     });
+  };
+
+  const saveLabel = async (next: string) => {
+    try {
+      await rename(token.id, next);
+    } catch (error) {
+      toast({ type: 'error', title: 'Could not rename the token', description: errorText(error) });
+      throw error;
+    }
   };
 
   return (
@@ -42,37 +57,43 @@ export function TokenRow({ token, manageable, offline, now }: TokenRowProps) {
 
       <div className={styles.tokenMain}>
         <div className={styles.tokenTitle}>
-          {manageable && !revoked && !offline ? (
+          {editable ? (
             <InlineEdit
               value={token.label}
               label={`Token label for ${token.label}`}
               variant="body"
               as="span"
-              validate={next => (next.trim() ? (next.trim().length > 48 ? 'Keep the label under 48 characters.' : null) : 'Give the token a label.')}
-              onSave={next => renameToken(token.id, next)}
+              validate={validateLabel}
+              onSave={saveLabel}
             />
           ) : (
             <span className={styles.tokenLabel}>{token.label}</span>
           )}
+          {token.current && <span className={styles.current}>Signed in here</span>}
         </div>
 
         <p className={styles.tokenMeta}>
-          <code className={styles.prefix} title="Only this prefix is kept. The full token was shown once.">{token.prefix}…</code>
-          <span>{clientName(token.client)}</span>
-          <span>Created {formatRelative(token.createdAt, now)}</span>
+          {token.prefix && (
+            <code className={styles.prefix} title="Only this prefix is kept. The full token was shown once.">{token.prefix}…</code>
+          )}
+          {token.createdAt !== null && (
+            <span title={formatDateTime(token.createdAt)}>Created {formatRelative(token.createdAt, now)}</span>
+          )}
           {revoked ? (
             <span title={formatDateTime(token.revokedAt!)}>Revoked {formatRelative(token.revokedAt!, now)}</span>
+          ) : !token.detailsKnown ? (
+            <span>In use now</span>
           ) : (
-            <span title={token.lastUsedAt ? formatDateTime(token.lastUsedAt) : undefined}>
-              {token.lastUsedAt ? `Last used ${formatRelative(token.lastUsedAt, now)}` : 'Not used yet'}
+            <span title={token.lastUsedAt !== null ? formatDateTime(token.lastUsedAt) : undefined}>
+              {token.lastUsedAt !== null ? `Last used ${formatRelative(token.lastUsedAt, now)}` : 'Not used yet'}
             </span>
           )}
         </p>
 
         <p className={styles.tokenAgents}>
-          {agents.length === 0
-            ? 'No agents created with this token.'
-            : `Created ${countAgents(agents.length)}: ${agents.map(a => a.name).join(', ')}.`}
+          {token.agents.length === 0
+            ? revoked ? 'No agents connected with it.' : 'No agents connected with this token right now.'
+            : `${countAgents(token.agents.length)} connected: ${token.agents.map(a => a.name).join(', ')}.`}
         </p>
       </div>
 
@@ -80,13 +101,14 @@ export function TokenRow({ token, manageable, offline, now }: TokenRowProps) {
         <div className={styles.tokenAction}>
           <ConfirmMorph
             label="Revoke"
-            prompt={`Revoke ${token.label}?`}
+            prompt={token.current ? 'Revoke your own sign-in token?' : `Revoke ${token.label}?`}
             confirmLabel="Hold to revoke"
             pendingLabel="Revoking"
             doneLabel="Revoked"
+            errorLabel="Not revoked"
             confirmMode="hold"
             disabled={offline}
-            onConfirm={revoke}
+            onConfirm={confirmRevoke}
           />
         </div>
       )}

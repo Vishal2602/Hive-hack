@@ -7,30 +7,30 @@ import { Button } from '@/components/arc/button/button';
 import { EmptyState } from '@/components/arc/empty-state/empty-state';
 import { motionTokens } from '@/components/arc/lib/motion-tokens';
 import { Stepper } from '@/components/arc/stepper/stepper';
-import type { ClientId } from '@/mock';
-import { Page, useMock } from '@/shell';
+import { Page, useHive } from '@/shell';
 import { InviteStep } from './connect/InviteStep';
 import { WaitingStep } from './connect/WaitingStep';
 import { WorkspaceStep } from './connect/WorkspaceStep';
-import type { Invite } from './connect/shared';
+import type { ConnectClientId } from './connect/logic';
+import { useInviteProgress, type Invite } from './connect/shared';
 import styles from './connect/Connect.module.css';
 
 type Step = 0 | 1 | 2;
 
 export default function Connect() {
-  const { me, tokens } = useMock();
+  const { me } = useHive();
   const reduced = useReducedMotion() ?? false;
   const [step, setStep] = useState<Step>(0);
   const [invite, setInvite] = useState<Invite | null>(null);
-  const [client, setClient] = useState<ClientId>('claude-code');
+  const [client, setClient] = useState<ConnectClientId>('claude-code');
 
   const isAdmin = me?.role === 'admin';
   const isViewer = me?.role === 'viewer';
-  const registered = invite ? (tokens.find(t => t.id === invite.tokenId)?.agentSessionIds.length ?? 0) > 0 : false;
+  const { registered } = useInviteProgress(invite);
 
   const steps = [
     { id: 'workspace', label: 'Workspace', description: 'Check the cloud link' },
-    { id: 'invite', label: isAdmin ? 'Invite' : 'Token', description: 'Token and client setup' },
+    { id: 'invite', label: isAdmin ? 'Invite' : 'Your client', description: 'Token and client setup' },
     { id: 'waiting', label: 'First agent', description: 'Wait for it to register' },
   ];
   const current = step === 2 && registered ? 3 : step;
@@ -43,7 +43,7 @@ export default function Connect() {
   const title = isAdmin ? 'Invite a teammate' : 'Connect an agent';
   const description = isAdmin
     ? 'Share the cloud link and a personal token. Their agent appears here the moment it registers, wherever they are working from.'
-    : 'Create a token for your own coding agent and paste the ready-made config into your client.';
+    : 'Point your own coding agent at this workspace with the ready-made config for your client.';
 
   if (isViewer) {
     return (
@@ -101,7 +101,7 @@ export default function Connect() {
         </AnimatePresence>
         {step === 0 && invite && (
           <p className={styles.muted}>
-            {`You have an unsent token for ${invite.memberName}. `}
+            {invite.secret !== null ? `You have an unsent token for ${invite.memberName}. ` : 'Your client setup is still open. '}
             <Button variant="ghost" size="sm" onClick={() => setStep(1)}>Return to it</Button>
           </p>
         )}

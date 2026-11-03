@@ -8,14 +8,15 @@ import { EmptyState } from '@/components/arc/empty-state/empty-state';
 import { SortableDataTable, type DataColumn } from '@/components/arc/sortable-data-table/sortable-data-table';
 import { Stepper, type StepperStep } from '@/components/arc/stepper/stepper';
 import { Timeline, type TimelineEvent } from '@/components/arc/timeline/timeline';
-import { Page, formatClock, formatRelative, parseSymbolKey, useMediaQuery, useMock, useNow } from '@/shell';
+import { Page, formatClock, formatRelative, parseSymbolKey, useHive, useMediaQuery, useNow } from '@/shell';
 import type { Contract, ContractStatus, HiveEvent, VerificationRun } from '@/mock';
 import { SignatureList, SignatureMark } from './agreements/Participants';
 import { StateBadge } from './agreements/StateBadge';
 import { VerificationRuns } from './agreements/VerificationRuns';
+import { useContractRuns } from './agreements/runs';
 import {
-  STATE_LABEL, isOffTrack, latestAppliedRun, lifecycleIndex, runVerdict, signatureFor, signedCount, standingSentence,
-  type Signature,
+  STATE_LABEL, VERDICT_TITLE, exitText, isOffTrack, latestAppliedRun, lifecycleIndex, runVerdict, runningRun, signatureFor, signedCount,
+  signersOf, standingSentence, type Signature,
 } from './agreements/model';
 import styles from './agreements/agreements.module.css';
 
@@ -28,10 +29,13 @@ const BackLink = () => (
 
 export default function AgreementDetail() {
   const { id } = useParams();
-  const { snapshot, runsFor, sessionName } = useMock();
+  const { snapshot, sessionName, readOnly } = useHive();
   const navigate = useNavigate();
-  const now = useNow(15_000);
   const contract = snapshot.contracts.find(c => c.id === id);
+  // Every run Hive knows for this agreement; running ones are re-read every second until they finish.
+  const runs = useContractRuns(id ?? '');
+  // Tick every second while a run is going so its duration stays current.
+  const now = useNow(runs.polling ? 1_000 : 15_000);
 
   if (!contract) {
     return (
@@ -47,21 +51,28 @@ export default function AgreementDetail() {
     );
   }
 
-  return <Detail contract={contract} runs={runsFor(contract.id)} events={snapshot.events} sessionName={sessionName} now={now} />;
+  return (
+    <Detail contract={contract} runs={runs.list} polling={runs.polling} runError={runs.error} events={snapshot.events}
+      sessionName={sessionName} now={now} readOnly={readOnly} />
+  );
 }
 
 interface DetailProps {
   contract: Contract;
   runs: VerificationRun[];
+  polling: boolean;
+  runError: string | null;
   events: HiveEvent[];
   sessionName: (id: string) => string;
   now: number;
+  readOnly: boolean;
 }
 
-function Detail({ contract, runs, events, sessionName, now }: DetailProps) {
+function Detail({ contract, runs, polling, runError, events, sessionName, now, readOnly }: DetailProps) {
   const owner = sessionName(contract.ownerSessionId);
   const producer = contract.producerSymbol ? parseSymbolKey(contract.producerSymbol) : null;
   const applied = latestAppliedRun(runs);
+  const inFlight = runningRun(runs);
   const signed = signedCount(contract);
   const total = contract.participants.length;
   const proven = contract.status === 'verified' || (applied ? runVerdict(applied) === 'proof' : false);
@@ -71,16 +82,16 @@ function Detail({ contract, runs, events, sessionName, now }: DetailProps) {
   const phone = useMediaQuery('(max-width: 620px)');
 
   const steps = useMemo<StepperStep[]>(() => {
-    const verifyError = applied && !applied.passed && contract.status !== 'verified'
-      ? `${applied.command} exited ${applied.exitCode} at revision ${applied.revision}`
+    const verifyError = !inFlight && applied && !applied.passed && contract.status !== 'verified'
+      ? `${applied.command}: ${VERDICT_TITLE[runVerdict(applied)].toLowerCase()}, ${exitText(applied)} at revision ${applied.revision}`
       : undefined;
     return [
       { id: 'proposed', label: 'Proposed', description: 'Declaration on record' },
       { id: 'accepted', label: 'Accepted', description: signed === total ? 'Every participant signed this exact version' : `${signed} of ${total} signed this version` },
       { id: 'implemented', label: 'Implemented', description: 'Compiler found matching code' },
-      { id: 'verified', label: 'Verified', description: 'Tests passed on applied code', error: verifyError },
+      { id: 'verified', label: 'Verified', description: inFlight ? `Running ${inFlight.command} now` : 'Tests passed on applied code', error: verifyError },
     ];
-  }, [applied, contract.status, signed, total]);
+  }, [applied, inFlight, contract.status, signed, total]);
 
   return (
     <Page
@@ -112,11 +123,13 @@ function Detail({ contract, runs, events, sessionName, now }: DetailProps) {
           <div className={styles.splitCell} data-kind={proven ? 'proof' : 'unproven'}>
             <h3 className={styles.smallHeading}>Proof</h3>
             <p>
-              {proven && applied
-                ? `${applied.command} exited 0 on applied code at revision ${applied.revision}.`
-                : applied
-                  ? `Not verified. The latest run on applied code exited ${applied.exitCode}.`
-                  : 'Not verified. No test has run on applied code yet.'}
+              {inFlight
+                ? `${inFlight.command} is running at revision ${inFlight.revision}. No result yet.`
+                : proven && applied
+                  ? `${applied.command} exited 0 on applied code at revision ${applied.revision}.`
+                  : applied
+                    ? `Not verified. The latest run on applied code ${runVerdict(applied) === 'inconclusive' ? 'was inconclusive' : runVerdict(applied) === 'error' ? 'could not run' : 'failed'} (${exitText(applied)}).`
+                    : 'Not verified. No test has run on applied code yet.'}
             </p>
             <p className={styles.muted}>Only a passing run on applied code counts.</p>
           </div>
@@ -137,7 +150,7 @@ function Detail({ contract, runs, events, sessionName, now }: DetailProps) {
           <h3 className={styles.smallHeading}>Behavior notes</h3>
           {contract.behaviorNotes.trim()
             ? <ul className={styles.noteList}>{contract.behaviorNotes.split('\n').filter(l => l.trim()).map((line, i) => <li key={i}>{line}</li>)}</ul>
-            : <p className={styles.muted}>No behavior notes for this version.</p>}
+            : <p className={styles.muted}>{readOnly ? 'Behavior notes are not shared with viewer tokens.' : 'No behavior notes for this version.'}</p>}
         </div>
       </section>
 
@@ -149,6 +162,7 @@ function Detail({ contract, runs, events, sessionName, now }: DetailProps) {
         {phone
           ? <SignatureList contract={contract} sessionName={sessionName} now={now} />
           : <SignatureTable contract={contract} sessionName={sessionName} now={now} />}
+        <EarlierVersions contract={contract} sessionName={sessionName} now={now} />
       </section>
 
       <section className={styles.section} aria-labelledby="evidence-heading">
@@ -159,7 +173,7 @@ function Detail({ contract, runs, events, sessionName, now }: DetailProps) {
         <ImplementationEvidence contract={contract} now={now} />
         <div className={styles.subsection}>
           <h3 className={styles.subTitle}>Verification runs</h3>
-          <VerificationRuns runs={runs} now={now} />
+          <VerificationRuns runs={runs} now={now} polling={polling} error={runError} />
         </div>
       </section>
 
@@ -233,6 +247,33 @@ function SignatureTable({ contract, sessionName, now }: { contract: Contract; se
   );
 }
 
+/** Signatures on every earlier version, so a reader can see who agreed to what before the latest revision. */
+function EarlierVersions({ contract, sessionName, now }: { contract: Contract; sessionName: (id: string) => string; now: number }) {
+  const earlier = contract.history.filter(v => v.version !== contract.version).sort((a, b) => b.version - a.version);
+  if (!earlier.length) return null;
+  return (
+    <div className={styles.subsection}>
+      <h3 className={styles.subTitle}>Earlier versions</h3>
+      <p className={styles.muted}>These signatures do not count for version {contract.version}.</p>
+      <ol className={styles.versions}>
+        {earlier.map(v => {
+          const signers = signersOf(contract, v.version);
+          return (
+            <li key={v.version} className={styles.versionItem}>
+              <p className={styles.versionHead}>
+                <strong>Version {v.version}</strong>
+                <span className={styles.muted}>proposed {formatRelative(v.at, now)}</span>
+                <span>{signers.length ? `Signed by ${signers.map(s => sessionName(s.sessionId)).join(', ')}` : 'Nobody signed it'}</span>
+              </p>
+              <pre className={styles.declaration}>{v.declaration}</pre>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 function ImplementationEvidence({ contract, now }: { contract: Contract; now: number }) {
   const impl = contract.evidence.implemented;
   const overlay = contract.evidence.overlayCheck;
@@ -242,11 +283,11 @@ function ImplementationEvidence({ contract, now }: { contract: Contract; now: nu
       {impl ? (
         <div className={styles.evidence}>
           <p>
-            The compiler found <code>{parseSymbolKey(impl.symbol).name}</code> in <code>{impl.file}</code> with a matching
+            The compiler found <code>{parseSymbolKey(impl.symbol).name}</code> in <code>{impl.file || parseSymbolKey(impl.symbol).file}</code> with a matching
             signature at revision {impl.revision}, {formatRelative(impl.at, now)}.
           </p>
-          <pre className={styles.declaration}>{impl.declaration}</pre>
-          <p className={styles.muted}>Declaration hash <code title={impl.declarationHash}>{impl.declarationHash}</code></p>
+          {impl.declaration && <pre className={styles.declaration}>{impl.declaration}</pre>}
+          {impl.declarationHash && <p className={styles.muted}>Declaration hash <code title={impl.declarationHash}>{impl.declarationHash}</code></p>}
         </div>
       ) : (
         <p className={styles.muted}>No code matches the declaration yet.</p>
@@ -292,7 +333,7 @@ function historyEvents(contract: Contract, runs: VerificationRun[], events: Hive
       at: ack.at,
       actor: sessionName(ack.sessionId),
       title: `signed version ${ack.version}`,
-      meta: `Against intent revision ${ack.intentRevision}`,
+      meta: ack.intentRevision > 0 ? `Against intent revision ${ack.intentRevision}` : undefined,
       icon: <PenLine />,
     });
   }
@@ -313,9 +354,15 @@ function historyEvents(contract: Contract, runs: VerificationRun[], events: Hive
       id: `run-${run.id}`,
       at: run.at,
       actor: 'Test runner',
-      title: `${run.command} exited ${run.exitCode} at revision ${run.revision}${run.overlay ? ' on staged changes' : ''}`,
-      meta: verdict === 'proof' ? 'Counts as verification' : verdict === 'overlay' ? 'Does not count as verification' : 'Verification failed',
-      tone: verdict === 'proof' ? 'success' : verdict === 'failed' ? 'danger' : 'neutral',
+      title: verdict === 'running'
+        ? `started ${run.command} at revision ${run.revision}, still running`
+        : `ran ${run.command} at revision ${run.revision}${run.overlay ? ' on staged changes' : ''}: ${VERDICT_TITLE[verdict].toLowerCase()}, ${exitText(run)}`,
+      meta: verdict === 'proof' ? 'Counts as verification'
+        : verdict === 'overlay' ? 'Does not count as verification'
+          : verdict === 'running' ? 'No result yet'
+            : verdict === 'inconclusive' ? 'Code moved during the run; proves nothing either way'
+              : run.reasons.join('; ') || 'Verification failed',
+      tone: verdict === 'proof' ? 'success' : verdict === 'failed' || verdict === 'error' ? 'danger' : 'neutral',
       icon: <SquareTerminal />,
     });
   }
@@ -330,5 +377,23 @@ function historyEvents(contract: Contract, runs: VerificationRun[], events: Hive
       out.push({ id: `event-${e.seq}`, at: e.at, actor: 'Hive', title: `marked it ${STATE_LABEL[e.type === 'contract.rejected' ? 'rejected' : 'cancelled'].toLowerCase()}`, meta: e.detail, icon: <X />, tone: 'danger' });
     }
   }
-  return out;
+  return orderForNewestFirst(out);
+}
+
+/** Causal rank inside one millisecond: a version is proposed, then signed, then accepted, then implemented and run. */
+function causalRank(id: string): number {
+  if (id.startsWith('version-')) return 0;
+  if (id.startsWith('ack-')) return 1;
+  if (id.startsWith('event-')) return 2;
+  if (id.startsWith('impl-')) return 3;
+  return 4;
+}
+
+/**
+ * The timeline sorts newest first with a stable sort, so items sharing a timestamp keep the order given here.
+ * Hand it the reverse causal order so a same-millisecond acceptance never renders below the signature that caused it.
+ */
+function orderForNewestFirst(items: TimelineEvent[]): TimelineEvent[] {
+  const time = (e: TimelineEvent) => new Date(e.at).getTime();
+  return [...items].sort((a, b) => time(b) - time(a) || causalRank(b.id) - causalRank(a.id));
 }

@@ -1,46 +1,97 @@
-import { useCallback, useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Activity as ActivityIcon } from 'lucide-react';
 import { Button } from '@/components/arc/button/button';
 import { EmptyState } from '@/components/arc/empty-state/empty-state';
 import { ScrollArea } from '@/components/arc/scroll-area/scroll-area';
 import { TocRail, type TocItem } from '@/components/TocRail';
-import { Page, formatClock, useMediaQuery, useMock, useNow, usePrefersReducedMotion } from '@/shell';
+import { Page, formatClock, useHive, useMediaQuery, useNow, usePrefersReducedMotion } from '@/shell';
+import type { HiveEvent } from '@/mock';
 import { EventDetail } from './activity/EventDetail';
 import { makeDescriber, type EventView } from './activity/describe';
+import { PAGE_SIZE, mergeBySeq, pageWindow } from './activity/paging';
 import styles from './activity/activity.module.css';
 
 // Tick geometry of the vendored element: ticks run from 1.875rem to 33.625rem.
 const TRACK_TOP = 1.875;
 const TRACK_BOTTOM = 33.625;
-const RAIL_LIMIT = 200;
 const shortClock = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 const tickTop = (index: number, count: number) => TRACK_TOP + (index / Math.max(count - 1, 1)) * (TRACK_BOTTOM - TRACK_TOP);
 
 export default function Activity() {
-  const { snapshot, sessionName } = useMock();
+  const { snapshot, events: live, sessionName, client, mode } = useHive();
   const navigate = useNavigate();
-  const now = useNow(15_000);
+  const now = useNow(1_000);
   const wide = useMediaQuery('(min-width: 1024px)');
   const [params, setParams] = useSearchParams();
 
+  // The store keeps the newest events (it grows from /events?after=<last seq> on every poll). Older pages
+  // are read from /events on demand and kept here for this visit.
+  const [older, setOlder] = useState<HiveEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const all = useMemo(() => (older.length ? mergeBySeq(older, live) : [...live].sort((a, b) => a.seq - b.seq)), [older, live]);
+
   const views = useMemo<EventView[]>(() => {
     const describe = makeDescriber(snapshot, sessionName);
-    // Chronological, oldest first. The rail holds at most 200 items, so keep the most recent ones.
-    return [...snapshot.events].sort((a, b) => a.seq - b.seq).slice(-RAIL_LIMIT).map(describe);
-  }, [snapshot, sessionName]);
+    return all.map(describe);
+  }, [all, snapshot, sessionName]);
 
-  const requested = Number(params.get('event'));
-  const found = views.findIndex(v => v.event.seq === requested);
-  const index = found >= 0 ? found : views.length - 1;
+  const requestedRaw = params.get('event');
+  const requested = requestedRaw === null ? null : Number(requestedRaw);
+  const found = requested === null ? -1 : views.findIndex(v => v.event.seq === requested);
+  const following = found < 0;
+  const index = following ? views.length - 1 : found;
+  const { start, end } = pageWindow(views.length, index);
+  const windowViews = useMemo(() => views.slice(start, end), [views, start, end]);
+  const firstSeq = all[0]?.seq ?? 0;
+  const lastSeq = all[all.length - 1]?.seq ?? 0;
 
-  const select = useCallback((next: number) => {
-    const view = views[next];
-    if (!view) return;
+  const selectSeq = useCallback((seq: number | null) => {
     const p = new URLSearchParams(params);
-    p.set('event', String(view.event.seq));
+    if (seq === null) p.delete('event'); else p.set('event', String(seq));
     setParams(p, { replace: true });
-  }, [views, params, setParams]);
+  }, [params, setParams]);
+
+  const selectInWindow = useCallback((i: number) => {
+    const view = windowViews[i];
+    if (view) selectSeq(view.event.seq);
+  }, [windowViews, selectSeq]);
+
+  /** Reads up to one page of events that come before `beforeSeq` from /events and keeps them. */
+  const loadBefore = useCallback(async (beforeSeq: number): Promise<HiveEvent[]> => {
+    if (mode !== 'live' || beforeSeq <= 1) return [];
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const after = Math.max(0, beforeSeq - 1 - PAGE_SIZE);
+      const page = (await client.events(after, Math.min(PAGE_SIZE, beforeSeq - 1 - after))) as HiveEvent[];
+      setOlder(prev => mergeBySeq(prev, page));
+      return page;
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Could not load earlier events');
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }, [client, mode]);
+
+  // A link to an event older than the ones in memory: read the page that holds it once.
+  const tried = useRef(new Set<number>());
+  useEffect(() => {
+    if (requested === null || !Number.isInteger(requested) || found >= 0 || !all.length) return;
+    if (requested >= firstSeq || requested < 1 || tried.current.has(requested)) return;
+    tried.current.add(requested);
+    void loadBefore(Math.min(firstSeq, requested + PAGE_SIZE / 2));
+  }, [requested, found, all.length, firstSeq, loadBefore]);
+
+  const earlier = async () => {
+    if (start > 0) { selectSeq(views[start - 1]!.event.seq); return; }
+    const page = await loadBefore(firstSeq);
+    if (page.length) selectSeq(page[page.length - 1]!.seq);
+  };
+  const later = () => { if (end < views.length) selectSeq(views[end]!.event.seq); };
+  const canEarlier = start > 0 || (mode === 'live' && firstSeq > 1);
 
   if (views.length === 0) {
     return (
@@ -55,25 +106,41 @@ export default function Activity() {
     );
   }
 
-  const current = views[index];
+  const current = views[index]!;
   const onlyServer = views.every(v => !v.sessionId);
+  const pager = (
+    <div className={styles.pager}>
+      <p className={styles.pagerText} aria-live="polite">
+        {windowViews.length === views.length && firstSeq <= 1
+          ? `${views.length} event${views.length === 1 ? '' : 's'}${following ? ', following new ones' : ''}`
+          : `Events ${windowViews[0]!.event.seq} to ${windowViews[windowViews.length - 1]!.event.seq} of ${lastSeq}${following ? ', following new ones' : ''}`}
+      </p>
+      {canEarlier && <Button variant="ghost" size="sm" onClick={() => void earlier()} disabled={loading}>{loading ? 'Loading' : 'Earlier'}</Button>}
+      {end < views.length && <Button variant="ghost" size="sm" onClick={later}>Later</Button>}
+      {!following && <Button variant="secondary" size="sm" onClick={() => selectSeq(null)}>Follow latest</Button>}
+      {loadError && <p className={styles.pagerError} role="alert">{loadError}</p>}
+    </div>
+  );
 
   return (
     <Page
       title="Activity"
       description={wide
         ? 'Every event on this Hive server, in order. Scrub the rail to preview, click or press Enter to open one, or use the arrow keys.'
-        : 'Every event on this Hive server, in order. Pick one to see its diff or test output.'}
+        : 'Every event on this Hive server, in order. Pick one to see its fields, diff or test output.'}
     >
       {onlyServer && (
         <p className={styles.hint}>Only server events so far. Agent registrations, intents and changes will join this timeline as people connect.</p>
       )}
       <div className={wide ? styles.layoutWide : styles.layoutNarrow}>
-        {wide
-          ? <Scrubber views={views} index={index} onSelect={select} />
-          : <Strip views={views} index={index} onSelect={select} />}
+        <div className={wide ? styles.side : styles.sideNarrow}>
+          {pager}
+          {wide
+            ? <Scrubber views={windowViews} index={index - start} onSelect={selectInWindow} />
+            : <Strip views={windowViews} index={index - start} onSelect={selectInWindow} />}
+        </div>
         <div className={styles.main}>
-          <EventDetail key={current.event.seq} view={current} position={index + 1} total={views.length} now={now} />
+          <EventDetail key={current.event.seq} view={current} position={current.event.seq} total={Math.max(lastSeq, current.event.seq)} now={now} />
         </div>
       </div>
     </Page>

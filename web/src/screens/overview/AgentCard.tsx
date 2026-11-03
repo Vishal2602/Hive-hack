@@ -6,10 +6,11 @@ import { Progress } from '@/components/arc/progress/progress';
 import { Stepper, type StepperStep } from '@/components/arc/stepper/stepper';
 import { AGENT_STEPS, CLIENTS, type AgentStepKey, type AgentView } from '@/mock';
 import { formatRelative, parseSymbolKey, useMediaQuery } from '@/shell';
-import { STATE_LABEL } from './derive';
+import { STATE_LABEL, leaseText } from './derive';
 import styles from './overview.module.css';
 
-const sentence = (text: string) => (text ? text[0].toUpperCase() + text.slice(1) : text);
+const sentence = (text: string) => (text ? text[0]!.toUpperCase() + text.slice(1) : text);
+const unique = <T,>(items: T[]) => [...new Set(items)];
 
 /** Short names that fit under six markers side by side. The full label stays in the status line. */
 const SHORT_LABEL: Record<AgentStepKey, string> = {
@@ -21,34 +22,33 @@ const SHORT_LABEL: Record<AgentStepKey, string> = {
   verified: 'Verified',
 };
 
-/** Minutes only, so the rolling status changes at most once a minute. */
-function leaseText(expiresAt: number, now: number): string {
-  const left = expiresAt - now;
-  if (left <= 0) return 'lease expired';
-  if (left < 60_000) return 'lease ends in under a minute';
-  return `${Math.ceil(left / 60_000)} min left on lease`;
-}
-
-export function AgentCard({ agent, workspaceName, sessionName, now }: {
+export function AgentCard({ agent, workspaceName, sessionName, now, viewer = false }: {
   agent: AgentView;
   workspaceName: string;
   sessionName: (id: string) => string;
   now: number;
+  /** Viewer data (/api/view) carries no lease, client or intent details, so none are shown or invented. */
+  viewer?: boolean;
 }) {
   const { session, intent, progress, memberName, agentName } = agent;
-  const client = CLIENTS.find(c => c.id === session.client)?.name ?? session.client ?? 'Unknown client';
+  const client = CLIENTS.find(c => c.id === session.client)?.name ?? session.client ?? null;
   const verified = progress.key === 'verified';
-  const conflict = agent.findings.find(f => f.severity === 'error');
-  const others = conflict ? conflict.sessions.filter(id => id !== session.id).map(sessionName) : [];
+  const conflict = agent.findings.find(f => f.severity === 'error') ?? agent.findings.find(f => f.severity === 'warning');
+  const others = conflict ? unique(conflict.sessions.filter(id => id !== session.id)).map(sessionName) : [];
 
   // Step names sit under the markers from 820 px; below that a single line says where the agent is.
   const wide = useMediaQuery('(min-width: 820px)');
   const inConflict = progress.key === 'contract_pending' && Boolean(conflict);
+  const hard = conflict?.severity === 'error';
   const steps: StepperStep[] = AGENT_STEPS.map((step, index) => ({
     id: step.key,
     label: SHORT_LABEL[step.key],
-    error: index === progress.step - 1 && inConflict ? 'Conflict' : undefined,
+    // Only a proven conflict turns the marker into an alert; warnings stay on the status line below.
+    // A failing check marks the step after the current one (Verified), so Implemented reads as done.
+    error: index === progress.step - 1 && inConflict && hard ? 'Conflict'
+      : progress.failure && index === progress.step ? progress.failure : undefined,
   }));
+  const current = verified ? AGENT_STEPS.length : progress.failure ? progress.step : progress.step - 1;
 
   const title = sentence(agentName);
   const position = `Step ${progress.step} of ${AGENT_STEPS.length}: ${progress.label.toLowerCase()}`;
@@ -59,15 +59,15 @@ export function AgentCard({ agent, workspaceName, sessionName, now }: {
       title={title}
       description={intent?.task ?? 'No intent declared yet.'}
       avatar={<Avatar name={memberName} size="sm" />}
-      meta={`${memberName} · ${client}`}
-      status={`${workspaceName} · ${leaseText(session.expiresAt, now)}`}
-      details={<AgentDetails agent={agent} client={client} workspaceName={workspaceName} now={now} />}
+      meta={client ? `${memberName} · ${client}` : memberName}
+      status={viewer ? workspaceName : `${workspaceName} · ${leaseText(session, now)}`}
+      details={<AgentDetails agent={agent} client={client} workspaceName={workspaceName} now={now} viewer={viewer} />}
     >
       <div className={styles.agentSteps}>
         {wide ? (
           <Stepper
             steps={steps}
-            current={verified ? AGENT_STEPS.length : progress.step - 1}
+            current={current}
             label={`${title} progress`}
             completeLabel="Verified"
           />
@@ -77,14 +77,18 @@ export function AgentCard({ agent, workspaceName, sessionName, now }: {
         <p className={styles.stepStatus}>
           {wide && <span className={styles.stepPosition}>{position}. </span>}
           {progress.reason}
-          {inConflict && <span className={styles.stepConflict}> In conflict with {others.join(' and ') || 'another agent'}.</span>}
+          {inConflict && (
+            <span className={hard ? styles.stepConflict : styles.stepAttention}>
+              {hard ? ' In conflict with ' : ' Needs coordination with '}{others.join(' and ') || 'another agent'}.
+            </span>
+          )}
         </p>
       </div>
     </Card>
   );
 }
 
-function AgentDetails({ agent, client, workspaceName, now }: { agent: AgentView; client: string; workspaceName: string; now: number }) {
+function AgentDetails({ agent, client, workspaceName, now, viewer }: { agent: AgentView; client: string | null; workspaceName: string; now: number; viewer: boolean }) {
   const { intent, progress, contracts, findings, session } = agent;
   return (
     <dl className={styles.facts}>
@@ -94,7 +98,7 @@ function AgentDetails({ agent, client, workspaceName, now }: { agent: AgentView;
       </div>
       <div>
         <dt>Intent</dt>
-        <dd>{intent ? `Revision ${intent.revision}, declared ${formatRelative(intent.at, now)}.` : 'Not declared yet.'}</dd>
+        <dd>{!intent ? 'Not declared yet.' : viewer ? 'Declared. Files, symbols and assumptions are not shared with viewers.' : `Revision ${intent.revision}, declared ${formatRelative(intent.at, now)}.`}</dd>
       </div>
       {intent && intent.files.length > 0 && (
         <div>
@@ -124,7 +128,7 @@ function AgentDetails({ agent, client, workspaceName, now }: { agent: AgentView;
       </div>
       <div>
         <dt>Session</dt>
-        <dd>{client} in {workspaceName}. <code>{session.id.slice(0, 8)}</code></dd>
+        <dd>{client ? `${client} in ${workspaceName}` : workspaceName}{viewer ? '' : `, ${leaseText(session, now)}`}. <code>{session.id.slice(0, 8)}</code></dd>
       </div>
     </dl>
   );

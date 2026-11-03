@@ -1,25 +1,44 @@
 // Shared pieces for the Connect flow.
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { CopyButton } from '@/components/arc/copy-button/copy-button';
-import type { ClientId, Role } from '@/mock';
+import type { Role } from '@/mock';
+import { useHive } from '@/shell';
+import { inviteProgress, type ConnectClientId, type InviteProgress } from './logic';
 import styles from './Connect.module.css';
 
-/** The token generated in step 2. The secret lives in component state only and is gone when the page unmounts. */
+/**
+ * What step 3 follows. Either a token created in step 2 (`secret` is set, shown once, kept in component
+ * state only) or, for members who cannot create tokens, their own signed-in token (`secret` is null).
+ */
 export interface Invite {
-  secret: string;
-  tokenId: string;
+  secret: string | null;
+  tokenId: string | null;
   memberName: string;
   role: Role;
+  /** The token belongs to the signed-in person. */
+  own: boolean;
+  /** Sessions already registered with this token when the invite was made; they do not count as new. */
+  baselineSessionIds: string[];
 }
 
-export interface ConnectChoices {
-  client: ClientId;
+/** Live progress of an invite, recomputed on every poll. */
+export function useInviteProgress(invite: Invite | null): InviteProgress {
+  const { snapshot, tokenRecords, tokens, mode } = useHive();
+  return useMemo(() => {
+    if (!invite) return { sessionIds: [], clientSeenAt: null, registered: false, revoked: false };
+    const record = tokenRecords.find(t => t.id === invite.tokenId)
+      ?? (mode === 'mock' ? tokens.find(t => t.id === invite.tokenId) ?? null : null);
+    const extra = mode === 'mock' ? tokens.find(t => t.id === invite.tokenId)?.agentSessionIds ?? [] : [];
+    return inviteProgress({
+      tokenId: invite.tokenId, baselineSessionIds: invite.baselineSessionIds, sessions: snapshot.sessions,
+      record: record ? { id: record.id, lastUsedAt: record.lastUsedAt, revokedAt: record.revokedAt } : null,
+      newToken: invite.secret !== null, extraSessionIds: extra,
+    });
+  }, [invite, snapshot.sessions, tokenRecords, tokens, mode]);
 }
-
-export const showDemoControls = () => import.meta.env.DEV || new URLSearchParams(window.location.search).has('demo');
 
 /** Where each client's snippet goes, in one sentence. `name` is null when the token is for the signed-in person. */
-export function whereToPaste(client: ClientId, name: string | null): string {
+export function whereToPaste(client: ConnectClientId, name: string | null): string {
   const self = name === null;
   switch (client) {
     case 'claude-code':
@@ -28,10 +47,10 @@ export function whereToPaste(client: ClientId, name: string | null): string {
         : `${name} runs this once in a terminal, inside the repository folder they work in. Claude Code picks Hive up on its next start.`;
     case 'muse-code':
       return self
-        ? 'Open Muse Code settings, find MCP servers and paste this block. Muse Code reconnects on save.'
-        : `${name} opens Muse Code settings, finds MCP servers and pastes this block. Muse Code reconnects on save.`;
+        ? 'Add this block to the MCP servers section of your Muse Code configuration, then reconnect.'
+        : `${name} adds this block to the MCP servers section of their Muse Code configuration, then reconnects.`;
     default:
-      return `${self ? 'Add' : `${name} adds`} this to the client's MCP configuration, usually mcp.json. The client needs streamable HTTP with request headers.`;
+      return `${self ? 'Point' : `${name} points`} any MCP client that supports streamable HTTP with request headers at this URL, sending this header on every request.`;
   }
 }
 

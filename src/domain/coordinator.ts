@@ -329,11 +329,12 @@ export class Coordinator {
       this.store.run('INSERT OR IGNORE INTO acknowledgements(contract_id, version, session_id, intent_revision, created_at) VALUES (?, ?, ?, ?, ?)',
         contractId, version, id, intent?.revision ?? 0, this.clock());
       const acknowledged = this.store.all<{ session_id: string }>('SELECT session_id FROM acknowledgements WHERE contract_id = ? AND version = ?', contractId, version).map(r => r.session_id);
+      // Emit the signature before acceptance so the event log never shows acceptance ahead of the final signature.
+      this.emit('contract.acknowledged', `${contractId} v${version} by ${id}`, { contractId, version, sessionId: id });
       if (contract.status === 'proposed' && participants.every(p => acknowledged.includes(p))) {
         this.store.run("UPDATE contracts SET status = 'accepted', updated_at = ? WHERE id = ?", this.clock(), contractId);
         this.emit('contract.accepted', `${contractId} v${version} accepted by all participants`, { contractId, version });
       }
-      this.emit('contract.acknowledged', `${contractId} v${version} by ${id}`, { contractId, version, sessionId: id });
       return this.contract(contractId);
     });
   }
