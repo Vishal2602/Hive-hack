@@ -63,7 +63,7 @@ docs/                   PRODUCT, ARCHITECTURE, BUILD_PLAN, ACCEPTANCE, PROGRESS,
 HIVE_CLOUD_HANDOFF.md   code-verified description of the pre-cloud codebase (fact-checked)
 ```
 
-## 4. What is done (as of commit e220f30)
+## 4. What is done (as of commit 91a7491)
 - Backend phases 1 to 7 from `docs/BUILD_PLAN.md`: persistence, compiler index, staged operations, Ghost
   Contracts with verification, Muse Spark analysis (mock-tested + one live call), hooks, scripted demo and
   evaluation harness.
@@ -72,15 +72,17 @@ HIVE_CLOUD_HANDOFF.md   code-verified description of the pre-cloud codebase (fac
   `/events` paging); asynchronous verification (`running | passed | failed | inconclusive | error`, never
   blocks heartbeats); MCP over HTTP at `/mcp`; Dockerfile + entrypoint + `railway.json` + `docs/DEPLOY.md`;
   React dashboard core (live API client, store, Linear sidebar) served at `/ui`.
-- Quality: `npm run typecheck` clean; `npm test` 73/73 (about 20 s, includes a real Docker build when Docker
+- Dashboard screens wired to live data; design review approved; local release checks passed.
+- Quality: `npm run typecheck` clean; `npm test` 107/107 (about 20 s, includes a real Docker build when Docker
   runs); live smoke of health, viewer refusal and token issuance passed.
 
-## 5. What was in progress when this was written
-A background build was finishing the dashboard screens (`web/src/screens/**`: sign-in and connect, overview,
-agreements and activity, members) against live data, then a design-manager review with screenshots, then
-release checks and docs, each ending in a commit. If `git log` shows commits after e220f30 mentioning
-"screens", "review" or "release checks", that work landed. If not, run the screens yourself: build with
-`cd web && npm run typecheck && npm run build`, start `scripts/seed-demo.ts`, open `/ui`.
+## 5. Build status at the last update (2026-11-03, commit 91a7491)
+The cloud build is complete and committed. Dashboard screens are wired to live data (commit 46bf54d), the
+design manager approved the live app on its third review round (68 screenshots at 390/820/1440 in light and
+dark plus viewer and offline states; sidebar is Linear-style; the table-of-content rail appears only on
+Activity), and the release checks that can run locally all passed (commit 91a7491): restart persistence,
+slow verification with live heartbeats (health, snapshot and heartbeat under 5 ms during a 5 s run), viewer
+refusal with a secret-free `web/dist`, journal recovery, Docker build and run. Test suite: 107/107.
 
 ## 6. What is left (priority order)
 1. **Hosting.** Nothing is deployed. Plan of record: one Railway service + volume (`docs/HIVE_CLOUD_PLAN.md`,
