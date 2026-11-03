@@ -139,7 +139,8 @@ system it integrates with was not available in the build environment.
   not run in this build (it spends the user's Claude usage). No capture of a live hook payload yet.
 
 ## Phase 7 — dashboard, scripted demo, evaluation (done 2026-11-02; real-agent run NOT done)
-- `src/dashboard/index.html` served by the daemon at `/` and `/ui` without auth (static, secret-free,
+- (Superseded 2026-11-02/03: `src/dashboard/index.html` was deleted and replaced by the React app in `web/`,
+  see "Cloud build" below.) `src/dashboard/index.html` served by the daemon at `/` and `/ui` without auth (static, secret-free,
   CSP); token pasted once into sessionStorage; polls `/snapshot` every 2 s; agent cards, selected
   finding with evidence and before/after, contract lifecycle with exact-version acknowledgements,
   verification evidence, event timeline; empty/offline/stale/model-unavailable states; green only
@@ -150,6 +151,46 @@ system it integrates with was not available in the build environment.
   controls, no-conflict control, harmless overlap, direct edit, injected model timeout/malformed
   output; measured latency; results in `evaluation/`.
 - Full suite: 47/47; typecheck clean.
+
+## Cloud build 2026-11-02/03 (local build + local release checks; NOT deployed)
+Spec: `docs/superpowers/specs/2026-11-02-hive-cloud-app-design.md`; plan: `docs/HIVE_CLOUD_PLAN.md`.
+What landed (implemented + tested unless stated):
+- **Roles and member tokens** (`src/server/auth.ts`, `src/server/tokens.ts`): `HIVE_TOKEN` is the operator
+  (admin); `token_create/list/rename/revoke` (admin-only) issue `admin`/`member`/`viewer` tokens. The secret is
+  returned once and stored hashed; comparison is constant-time. Members may only drive sessions registered with
+  their own token. Viewers may only GET `/api/view`, `/me`, `/events` (scrubbed: no payloads, no absolute paths)
+  and `/healthz`; every POST, `/snapshot` and `/mcp` is 403 for them.
+- **Hostable daemon** (`src/server/daemon.ts`): `HIVE_HOST` (loopback default; warns on non-loopback), `PORT`
+  then `HIVE_PORT`; unauthenticated `GET /healthz` (DB reads only, never sync); cached snapshot with a drift
+  timer (`?fresh=1` forces a sync for members/admins); paged `/events?after=&limit=`; SIGTERM/SIGINT refuse new
+  writes, drain in-flight apply/verify (max 10 s), close SQLite and exit 0.
+- **Async verification** (`src/contracts/service.ts`): `verify` returns a run id immediately; the test command
+  runs as a child process with an allowlisted command, minimal environment, timeout and bounded output;
+  `verify_status` polls it; one run per contract at a time.
+- **HTTP MCP** (`src/server/mcpHttp.ts`): Streamable HTTP at `/mcp`, same 16 `hive_*` tools as stdio
+  (`src/server/tools.ts`); one MCP session = one Hive session, bound to the token that created it.
+- **Container** (`Dockerfile`, `.dockerignore`, `deploy/entrypoint.sh`, `deploy/playground/`, `railway.json`,
+  `docs/DEPLOY.md`): volume at `/data`, playground initialised once from the bundled snapshot, never reset.
+- **React dashboard** (`web/`, served by the daemon at `/ui`, `src/server/static.ts`): Linear-style sidebar,
+  sign-in with a token (sessionStorage only), live polling of `/snapshot` + `/events` (admin/member) or
+  `/api/view` + `/events` (viewer), Overview, Agreements (with verification runs), Activity, Members/tokens,
+  Connect (invite + client snippets). CSP with a hashed theme script; path traversal and symlinks refused;
+  `npm run build:web` builds it, and `/ui` answers 503 naming that command when no build exists.
+- **Seed script** `scripts/seed-demo.ts`: the billing scenario on a temp copy of the playground for dashboard
+  work (the consumer edit is made by the script and logged as such; no model call).
+- Tests: `npm test` 107/107 (the 47 earlier tests kept); root and web typecheck clean; web build clean.
+  Release checks run 2026-11-03 are in `VERIFICATION.md`.
+
+Remaining for the cloud demo (not done):
+1. **Railway deploy** per `docs/DEPLOY.md` (volume at `/data`, `HIVE_TOKEN`, `RAILWAY_RUN_UID=0`,
+   `HIVE_PUBLIC_URL`), then repeat the release checks against the hosted URL, including a backup restore.
+2. **Muse Code live**: install it, connect over stdio or HTTP MCP, capture the real hook payload schema.
+3. **Two real agents** on the hosted checkout (distinct files), registration, a hook firing, a conflict
+   delivered and a revised agent action; save a redacted trace.
+4. **Video** of the 2-3 minute demo; label any scripted part.
+5. Known gaps: the Connect waiting step still shows a "simulate" button that does nothing in live mode;
+   for admins/members the agreement page lists only runs it saw while polling (the snapshot carries the
+   latest run per agreement); `HIVE_CLOUD_HANDOFF.md` still describes the pre-cloud code in places.
 
 ## Remaining (human or access needed)
 1. Put a real `MODEL_API_KEY` in `.env`, run `npm run demo` and `npm run evaluate -- --repeats 3`
