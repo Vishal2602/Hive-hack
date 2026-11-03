@@ -58,7 +58,7 @@ export function registerHiveTools(server: McpServer, backend: ToolBackend, optio
   const waitMs = options.verifyWaitMs ?? VERIFY_WAIT_MS;
   const pollMs = options.verifyPollMs ?? VERIFY_POLL_MS;
 
-  server.registerTool('hive_register', { description: 'Register this coding session with the shared Hive daemon. Optionally name the worktree directory you edit in.',
+  server.registerTool('hive_register', { description: 'Register this coding session with the shared Hive daemon. Omit `workspace` when Hive is hosted (your laptop path is not on the server); it only names a worktree on the same machine as Hive.',
     inputSchema: { name: z.string().min(1).max(200), workspace: z.string().min(1).max(2000).optional() } }, async ({ name, workspace }) => result(async () => {
     if (sessionId) throw new Error('Already registered; finish before registering again');
     const registered = z.object({ id: z.string().uuid() }).passthrough().parse(await backend.command({ action: 'register', name, workspace, client: options.client?.() }));
@@ -117,7 +117,7 @@ export function registerHiveTools(server: McpServer, backend: ToolBackend, optio
     inputSchema: { rule: claimRuleSchema } }, async input => result(() => send('claim', input)));
   server.registerTool('hive_analyze', { description: 'Ask Muse Spark to interpret the current intents, candidate findings and real declarations, and to propose resolutions with cited evidence. Returns an explicit status: ok, cached, unavailable (no key, timeout, API error), invalid (malformed output) or stale. Unavailable is NOT "no conflict".',
     inputSchema: { force: z.boolean().optional() } }, async input => result(() => send('analyze', input)));
-  server.registerTool('hive_finish', { description: 'End this session and release its live intent. Dependent agreements become stale.', inputSchema: {} },
+  server.registerTool('hive_finish', { description: 'End this session and release its live intent; teammates stop seeing your work and dependent agreements become stale. Only call it when the user says the work is over, not after each task.', inputSchema: {} },
     async () => result(async () => { const value = await send('finish'); release(); return value; }));
 
   return { get sessionId() { return sessionId; }, drop: release };

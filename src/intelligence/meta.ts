@@ -66,14 +66,17 @@ export const SYSTEM_PROMPT = [
   'Return only the JSON object described by the response schema.',
 ].join(' ');
 
+function clean(value: string | undefined): string | undefined { return value?.trim().replace(/^["']+|["']+$/g, '').trim() || undefined; }
+
 /** Muse Spark adapter over the OpenAI-compatible chat completions endpoint. Proposes; never executes. */
 export class MetaAnalyzer implements Analyzer {
   private readonly options: Required<Omit<MetaOptions, 'apiKey'>> & { apiKey: string | undefined };
   constructor(options: MetaOptions = {}) {
     this.options = {
-      apiKey: options.apiKey ?? process.env.MODEL_API_KEY,
-      model: options.model ?? process.env.HIVE_MODEL ?? 'muse-spark-1.3',
-      baseUrl: options.baseUrl ?? process.env.HIVE_MODEL_BASE_URL ?? 'https://api.meta.ai/v1',
+      // Trimmed: values pasted into a hosting dashboard often carry stray spaces or quotes.
+      apiKey: clean(options.apiKey ?? process.env.MODEL_API_KEY),
+      model: clean(options.model ?? process.env.HIVE_MODEL) || 'muse-spark-1.3',
+      baseUrl: (clean(options.baseUrl ?? process.env.HIVE_MODEL_BASE_URL) || 'https://api.meta.ai/v1').replace(/\/+$/, ''),
       fetch: options.fetch ?? fetch,
       timeoutMs: options.timeoutMs ?? 30_000,
       maxAttempts: options.maxAttempts ?? 3,
@@ -118,7 +121,8 @@ export class MetaAnalyzer implements Analyzer {
       const reason = parsedError.error?.message ?? detail.slice(0, 300) ?? '';
       const transient = response.status === 429 || response.status === 500 || response.status === 503;
       if (!transient || attempt >= this.options.maxAttempts) {
-        throw new AnalysisUnavailable(`Meta API HTTP ${response.status}${reason ? `: ${reason}` : ''}${response.status === 504 ? ' (gateway timeout; not retried)' : ''} after ${attempt} attempt(s)`, attempt);
+        const hint = response.status === 404 ? ` (model "${this.options.model}" at ${this.options.baseUrl}/chat/completions; check HIVE_MODEL and HIVE_MODEL_BASE_URL)` : '';
+        throw new AnalysisUnavailable(`Meta API HTTP ${response.status}${reason ? `: ${reason}` : ''}${hint}${response.status === 504 ? ' (gateway timeout; not retried)' : ''} after ${attempt} attempt(s)`, attempt);
       }
       await this.backoff(attempt, response.headers.get('retry-after'));
     }

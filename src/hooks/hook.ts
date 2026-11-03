@@ -189,6 +189,9 @@ try {
       if (syncable) {
         const head = git(root!, ['rev-parse', 'HEAD'])?.trim() ?? null;
         await callDaemon('/command', { action: 'remote_push', files: [{ path: rel, content: readOrNull(resolve(root!, rel!)) }], baseCommit: head });
+      } else if (root && !rawFile) {
+        // A shell command (or another tool) may have changed files: re-sync everything that differs from base.
+        await fullSync(root);
       }
       const changes = await callDaemon('/command', { action: 'sync' }) as { changed: string[]; added: string[]; removed: string[] };
       const touched = [...changes.changed, ...changes.added, ...changes.removed];

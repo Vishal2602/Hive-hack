@@ -15,7 +15,8 @@ const HOOK_EVENTS: { event: string; arg: string; matcher?: string; timeout: numb
   { event: 'SessionStart', arg: 'session-start', timeout: 30 },
   { event: 'UserPromptSubmit', arg: 'prompt', timeout: 30 },
   { event: 'PreToolUse', arg: 'pre-write', matcher: 'Edit|Write|MultiEdit', timeout: 30 },
-  { event: 'PostToolUse', arg: 'post-write', matcher: 'Edit|Write|MultiEdit', timeout: 60 },
+  // Bash too: agents sometimes edit with shell redirection; the hook then re-syncs every changed file.
+  { event: 'PostToolUse', arg: 'post-write', matcher: 'Edit|Write|MultiEdit|Bash', timeout: 60 },
 ];
 
 function fail(message: string): never { console.error(`hive-connect: ${message}`); process.exit(1); }

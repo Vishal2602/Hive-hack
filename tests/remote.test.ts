@@ -142,6 +142,15 @@ test('laptop sync: an edit that breaks another member\'s uncommitted work is cau
       const after = await (await fetch(`${url}/snapshot`, { headers: { Authorization: `Bearer ${admin}` } })).json() as typeof snapshot;
       assert.equal(after.findings.filter(f => f.kind === 'structural_incompatibility').length, 0);
 
+      // An edit made through a shell command (no file path in the tool input) is picked up by the post-tool full sync.
+      assert.match(JSON.stringify(settings.hooks.PostToolUse), /Edit\|Write\|MultiEdit\|Bash/);
+      const tax = join(vishal, 'src/tax.ts');
+      writeFileSync(tax, `${readFileSync(tax, 'utf8')}export const vishalNote = 1;\n`);
+      const bash = runHook('post-write', vishalEnv, { tool_name: 'Bash', cwd: vishal, tool_input: { command: `cat >> src/tax.ts` }, tool_response: {} });
+      assert.equal(bash.status, 0, bash.stderr);
+      state = (await command(url, admin, { action: 'remote_status' })).json as typeof state;
+      assert.ok(state.members.find(m => m.member === 'vishal')!.files.some(f => f.path === 'src/tax.ts'), 'shell edit synced');
+
       // Unsafe paths are rejected; viewers cannot push; the hub checkout was never written.
       const pushed = (await command(url, sanikaEnv.HIVE_TOKEN, { action: 'remote_push', files: [{ path: '../escape.ts', content: 'x' }, { path: 'node_modules/x/index.ts', content: 'x' }, { path: 'src/ok.ts', content: 'export const ok = 1;\n' }] })).json as { stored: string[]; rejected: string[] };
       assert.deepEqual(pushed.stored, ['src/ok.ts']);
@@ -209,4 +218,15 @@ test('first boot: HIVE_REPO_URL is cloned into an empty project root once; an ex
     assert.throws(() => prepareRepository(join(tmp, 'other'), { HIVE_REPO_URL: join(tmp, 'missing') }), /git clone/);
     assert.equal(maskUrl('https://x-access-token:ghp_secret@github.com/a/b.git'), 'https://***@github.com/a/b.git');
   } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('model settings pasted with stray spaces or quotes are cleaned; a 404 names the model and endpoint', async () => {
+  const { MetaAnalyzer } = await import('../src/intelligence/meta.ts');
+  let url = '';
+  const analyzer = new MetaAnalyzer({ apiKey: ' "k" ', model: ' "muse-spark-1.3" ', baseUrl: 'https://api.example.test/v1/ ', maxAttempts: 1,
+    fetch: (async (u: string) => { url = String(u); return new Response('{"error":{"message":"Not found"}}', { status: 404 }); }) as unknown as typeof fetch });
+  assert.equal(analyzer.model, 'muse-spark-1.3');
+  const bundle = { revision: 0, inputHash: 'x', intents: [], candidates: [], contracts: [], symbols: [], dependents: [] };
+  await assert.rejects(analyzer.analyze(bundle, []), /HTTP 404: Not found \(model "muse-spark-1\.3" at https:\/\/api\.example\.test\/v1\/chat\/completions/);
+  assert.equal(url, 'https://api.example.test/v1/chat/completions');
 });
