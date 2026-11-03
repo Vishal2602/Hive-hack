@@ -11,6 +11,7 @@ import SegmentedControl from '@/components/arc/segmented-control/segmented-contr
 import { Select } from '@/components/arc/select/select';
 import { ROLE_DESCRIPTION, ROLE_LABEL, type Role } from '@/mock';
 import { useHive, useMediaQuery } from '@/shell';
+import { signedInToken } from '@/shell/store';
 import { CONNECT_CLIENTS, REMOTE_SCOPE_NOTE, TOKEN_PLACEHOLDER, clientById, configSnippet, inviteLink, mcpUrl, type ConnectClientId } from './logic';
 import { CopyRow, whereToPaste, type Invite } from './shared';
 import styles from './Connect.module.css';
@@ -162,7 +163,9 @@ export function InviteStep({ invite, client, onClientChange, onCreated, onStartO
   }
 
   const option = clientById(client);
-  const tokenText = invite.secret ?? TOKEN_PLACEHOLDER;
+  // A member's own setup: fill in the token this tab signed in with (it never left the browser).
+  const ownToken = invite.secret === null && invite.own ? signedInToken() : null;
+  const tokenText = invite.secret ?? ownToken ?? TOKEN_PLACEHOLDER;
   const snippet = configSnippet(client, workspace.cloudLink, tokenText);
   const prefix = tokens.find(t => t.id === invite.tokenId)?.prefix ?? invite.secret?.slice(0, 12) ?? '';
   const self = invite.own;
@@ -186,7 +189,7 @@ export function InviteStep({ invite, client, onClientChange, onCreated, onStartO
         <div className={styles.sectionHead}>
           <h2 id="config-title" className={styles.sectionTitle}>{self ? 'Connect your client' : 'Connect their client'}</h2>
           <p className={styles.secondary}>
-            {invite.secret !== null
+            {invite.secret !== null || ownToken
               ? 'The endpoint and token are already filled in.'
               : `The endpoint is filled in. Replace ${TOKEN_PLACEHOLDER} with the token you signed in with.`}
           </p>

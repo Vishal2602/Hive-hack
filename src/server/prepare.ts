@@ -20,6 +20,10 @@ export function prepareRepository(root: string, env: NodeJS.ProcessEnv = process
   mkdirSync(dirname(root), { recursive: true });
   console.error(`Hive: cloning ${maskUrl(url)}${branch ? ` (${branch})` : ''} into ${root}`);
   const clone = spawnSync('git', ['clone', '--quiet', ...(branch ? ['--branch', branch] : []), url, temp], { encoding: 'utf8', timeout: 300_000 });
+  if (clone.error) {
+    rmSync(temp, { recursive: true, force: true });
+    throw new Error(`git is not available on this host (${clone.error.message}). On Railway set RAILPACK_DEPLOY_APT_PACKAGES=git and redeploy.`);
+  }
   if (clone.status !== 0) {
     rmSync(temp, { recursive: true, force: true });
     throw new Error(`git clone of ${maskUrl(url)} failed: ${(clone.stderr ?? '').split(url).join(maskUrl(url)).trim().slice(0, 500)}`);

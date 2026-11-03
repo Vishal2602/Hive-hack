@@ -22,6 +22,7 @@ HIVE_PROJECT_ROOT=../hive-playground npm start
 2. Set service variables:
    - `HIVE_TOKEN`: long random value (admin credential). The daemon refuses to start without it.
    - `HIVE_HOST=0.0.0.0` (the daemon binds loopback by default). Railway sets `PORT`.
+   - `RAILPACK_DEPLOY_APT_PACKAGES=git`: Railway's Node image has no `git`; Hive needs it to clone the repo and read its base commit.
    - `HIVE_PROJECT_ROOT=/data/repo` and `HIVE_DATA_DIR=/data/.hive`.
    - `HIVE_REPO_URL`: the team's Git repository (for a private repo, an HTTPS URL with a read-only token).
      On first boot Hive clones it into `/data/repo` and runs `npm ci --ignore-scripts`; an existing

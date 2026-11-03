@@ -35,6 +35,9 @@ function writeStorage(storage: 'local' | 'session', key: string, value: string |
   } catch { /* storage unavailable: keep in memory only */ }
 }
 
+/** The token this browser tab signed in with (sessionStorage only), so Connect can fill it into a member's own setup command. */
+export function signedInToken(): string | null { return readStorage('session', MOCK_TOKEN_KEY); }
+
 /** `?mock=1` turns the prototype data on for this tab, `?mock=0` turns it off; default is live. */
 export function detectMode(): StoreMode {
   const flag = new URLSearchParams(window.location.search).get('mock');
