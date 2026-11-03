@@ -66,6 +66,8 @@ function dispatch(command: Command, auth: Auth): unknown | Promise<unknown> {
     case 'analyze': return service.analyze(command.sessionId, { force: command.force });
     case 'sync': return service.sync();
     case 'hook_check': return service.hookCheck(command.file);
+    case 'analysis_relay_request': return service.analysis.relayRequest();
+    case 'analysis_relay_submit': return service.analysis.relaySubmit({ ...command, via: auth.member });
     case 'remote_status': return { ...service.remote.state(), member: auth.member };
     case 'remote_push': return service.remote.push(auth.member, { files: command.files, baseCommit: command.baseCommit ?? null, replace: command.replace });
     case 'remote_check': return service.remote.check(auth.member, { path: command.path, content: command.content }, command.baseCommit ?? null);

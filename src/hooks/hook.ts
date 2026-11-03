@@ -135,7 +135,8 @@ function emit(event: string, payload: { context?: string; decision?: 'allow' | '
   if (payload.decision === 'deny') process.exitCode = 2;
 }
 
-const raw = await readStdin();
+// `analyze` is run by hand (or by the agent through a shell); it reads no hook payload.
+const raw = eventArg === 'analyze' ? '' : await readStdin();
 let input: Record<string, unknown> = {};
 try { input = raw ? JSON.parse(raw) as Record<string, unknown> : {}; } catch { input = { unparsed: raw.slice(0, 2000) }; }
 log({ event: eventArg, input });
@@ -202,6 +203,38 @@ try {
       emit(eventArg, { context: context || undefined });
       break;
     }
+    case 'analyze': {
+      // Laptop relay: Hive builds the Muse Spark request; this laptop sends it with its own key and hands the
+      // raw response back. Hive validates and records it exactly as a direct call. The key never leaves this laptop.
+      const key = (process.env.MODEL_API_KEY ?? '').trim();
+      if (!key) {
+        process.stdout.write('Hive: MODEL_API_KEY is not set on this laptop. Re-run the Connect setup with MODEL_API_KEY set, or run: MODEL_API_KEY=<key> node .hive/hive-hook.mjs analyze\n');
+        process.exitCode = 1; break;
+      }
+      const request = await callDaemon('/command', { action: 'analysis_relay_request' }) as { inputHash: string; model: string; baseUrl: string; body: string };
+      const base = (process.env.HIVE_MODEL_BASE_URL?.trim() || request.baseUrl).replace(/\/+$/, '');
+      process.stdout.write(`Hive: asking ${request.model} from this laptop…\n`);
+      const started = Date.now();
+      let httpStatus = 0; let responseText = '';
+      try {
+        const response = await fetch(`${base}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          body: request.body, signal: AbortSignal.timeout(120_000) });
+        httpStatus = response.status; responseText = await response.text();
+      } catch (error) { responseText = error instanceof Error ? `${error.name}: ${error.message}` : String(error); }
+      const analysis = await callDaemon('/command', { action: 'analysis_relay_submit', inputHash: request.inputHash, httpStatus, responseText, latencyMs: Date.now() - started }) as
+        { status: string; summary: string; error: string | null; model: string | null; latencyMs: number | null; findings: { kind: string; explanation: string; suggestion: string; proposedDeclaration?: string; confidence: string }[]; dropped: string[] };
+      const lines = [`Hive analysis: ${analysis.status}${analysis.model ? ` (${analysis.model}, ${analysis.latencyMs} ms, relayed by this laptop)` : ''}`];
+      if (analysis.error) lines.push(`Error: ${analysis.error}`);
+      if (analysis.summary) lines.push(`Summary: ${analysis.summary}`);
+      for (const f of analysis.findings) {
+        lines.push(`- [${f.kind}, ${f.confidence}] ${f.explanation}`, `  Suggestion: ${f.suggestion}`);
+        if (f.proposedDeclaration) lines.push(`  Proposed declaration: ${f.proposedDeclaration}`);
+      }
+      if (analysis.dropped.length) lines.push(`(Hive discarded ${analysis.dropped.length} uncited finding(s).)`);
+      process.stdout.write(`${lines.join('\n')}\n`);
+      if (analysis.status !== 'ok' && analysis.status !== 'stale') process.exitCode = 1;
+      break;
+    }
     case 'session-end': {
       emit(eventArg, {});
       break;
@@ -211,5 +244,6 @@ try {
 } catch (error) {
   // Daemon down or unreachable: never block the client; say so once.
   log({ event: eventArg, error: error instanceof Error ? error.message : String(error) });
+  if (eventArg === 'analyze') { process.stdout.write(`Hive analysis failed: ${error instanceof Error ? error.message : String(error)}\n`); process.exit(1); }
   emit(eventArg, { context: `Hive daemon unreachable (${error instanceof Error ? error.message : String(error)}). Coordination is OFF for this step.` });
 }

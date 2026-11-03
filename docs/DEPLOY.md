@@ -43,6 +43,12 @@ HIVE_PROJECT_ROOT=../hive-playground npm start
   the hub checkout is never written.
 - Model analysis receives bounded diffs of every member's changes, so Muse Spark can flag a units mismatch
   that type-checks.
+- **Laptop relay for the model.** From our Railway service (US East and US West) the Meta Model API returned an
+  empty model list for a key that lists every model from a laptop (docs: "Model availability can vary by
+  country"). `node .hive/hive-hook.mjs analyze` on a member's laptop asks Hive for the exact request
+  (`analysis_relay_request`), sends it with the laptop's `MODEL_API_KEY`, and posts the raw response back
+  (`analysis_relay_submit`); Hive parses and validates it exactly as a direct call and records it, labelled as
+  relayed. Setup stores `MODEL_API_KEY` in `.claude/settings.local.json` when it is set while running `connect.mjs`.
 - Limits: only TypeScript type errors are found deterministically; edits made outside Claude Code's
   Edit/Write tools are picked up at the next prompt (full sync), not gated; the hub base is not pulled
   automatically, so after merging, redeploy or recreate `/data/repo` to move the base forward.

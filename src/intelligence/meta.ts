@@ -87,14 +87,26 @@ export class MetaAnalyzer implements Analyzer {
   get model(): string { return this.options.model; }
   get configured(): boolean { return Boolean(this.options.apiKey); }
 
-  async analyze(bundle: EvidenceBundle, knownSessions: string[]): Promise<AnalyzerResult> {
-    if (!this.options.apiKey) throw new AnalysisUnavailable('MODEL_API_KEY is not set; model analysis is unavailable (this is not a "no conflict" result)', 0);
-    const body = JSON.stringify({
+  get baseUrl(): string { return this.options.baseUrl; }
+
+  /** The exact chat-completions request body. Also handed to a laptop relay when this host cannot reach the model. */
+  requestBody(bundle: EvidenceBundle): string {
+    return JSON.stringify({
       model: this.options.model,
       temperature: 0,
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify(bundle) }],
       response_format: { type: 'json_schema', json_schema: { name: 'HiveAnalysis', schema: RESPONSE_JSON_SCHEMA } },
     });
+  }
+
+  /** Validates a raw response body obtained elsewhere (laptop relay) exactly like a direct call's. */
+  parseResponse(text: string, bundle: EvidenceBundle, knownSessions: string[], latencyMs: number): AnalyzerResult {
+    return this.parse(text, bundle, knownSessions, latencyMs, 1);
+  }
+
+  async analyze(bundle: EvidenceBundle, knownSessions: string[]): Promise<AnalyzerResult> {
+    if (!this.options.apiKey) throw new AnalysisUnavailable('MODEL_API_KEY is not set; model analysis is unavailable (this is not a "no conflict" result)', 0);
+    const body = this.requestBody(bundle);
     if (Buffer.byteLength(body) > 200_000) throw new AnalysisUnavailable(`Evidence bundle too large (${Buffer.byteLength(body)} bytes); narrow the intents`, 0);
     const started = Date.now();
     let attempt = 0;
@@ -121,7 +133,7 @@ export class MetaAnalyzer implements Analyzer {
       const reason = parsedError.error?.message ?? detail.slice(0, 300) ?? '';
       const transient = response.status === 429 || response.status === 500 || response.status === 503;
       if (!transient || attempt >= this.options.maxAttempts) {
-        const hint = response.status === 404 ? ` (model "${this.options.model}" at ${this.options.baseUrl}/chat/completions; check HIVE_MODEL and HIVE_MODEL_BASE_URL)` : '';
+        const hint = response.status === 404 ? ` (model "${this.options.model}" at ${this.options.baseUrl}/chat/completions; check HIVE_MODEL and HIVE_MODEL_BASE_URL. If the key works on a laptop, this host may not be offered the model: run \`node .hive/hive-hook.mjs analyze\` on a laptop instead)` : '';
         throw new AnalysisUnavailable(`Meta API HTTP ${response.status}${reason ? `: ${reason}` : ''}${hint}${response.status === 504 ? ' (gateway timeout; not retried)' : ''} after ${attempt} attempt(s)`, attempt);
       }
       await this.backoff(attempt, response.headers.get('retry-after'));

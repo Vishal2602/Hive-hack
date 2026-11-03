@@ -45,6 +45,10 @@ export const commandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('remote_status') }),
   z.object({ action: z.literal('remote_push'), baseCommit: z.string().max(80).nullable().optional(), replace: z.boolean().optional(),
     files: z.array(z.object({ path: text, content: z.string().max(262144).nullable() })).max(200) }),
+  // Laptop relay for model analysis (when this host is not offered the model).
+  z.object({ action: z.literal('analysis_relay_request') }),
+  z.object({ action: z.literal('analysis_relay_submit'), inputHash: z.string().min(1).max(200), httpStatus: z.number().int(),
+    responseText: z.string().max(1_000_000), latencyMs: z.number().int().nonnegative() }),
   z.object({ action: z.literal('remote_check'), baseCommit: z.string().max(80).nullable().optional(),
     path: text, content: z.string().max(262144).nullable() }),
   // Members and tokens. token_* are admin-only (src/server/auth.ts); the token value is returned once by token_create.

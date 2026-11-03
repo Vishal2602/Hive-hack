@@ -101,6 +101,47 @@ export class AnalysisService {
     return analysis;
   }
 
+  // ---- laptop relay ---------------------------------------------------------------------------------
+  // When this host cannot reach the model (the Meta API returns no models to some cloud hosts), a member's
+  // laptop sends the request with its own key and posts back the raw response. Hive builds the request and
+  // validates the answer exactly as for a direct call; the laptop only carries bytes.
+  private relays = new Map<string, { bundle: EvidenceBundle; known: string[]; at: number }>();
+
+  relayRequest(): { inputHash: string; revision: number; model: string; baseUrl: string; body: string } {
+    const analyzer = this.analyzer as Partial<{ requestBody(b: EvidenceBundle): string; model: string; baseUrl: string }>;
+    if (typeof analyzer.requestBody !== 'function') throw new Error('This Hive analyzer does not support laptop relay');
+    this.sync(this.coordinator.workspaceId);
+    const bundle = this.buildEvidence();
+    const known = [...new Set([...bundle.intents.map(i => i.sessionId), ...(bundle.changes ?? []).flatMap(c => c.sessionIds)])];
+    const now = this.clock();
+    for (const [hash, entry] of this.relays) if (now - entry.at > 10 * 60_000) this.relays.delete(hash);
+    this.relays.set(bundle.inputHash, { bundle, known, at: now });
+    return { inputHash: bundle.inputHash, revision: bundle.revision, model: analyzer.model ?? 'muse-spark-1.3', baseUrl: analyzer.baseUrl ?? 'https://api.meta.ai/v1', body: analyzer.requestBody(bundle) };
+  }
+
+  relaySubmit(input: { inputHash: string; httpStatus: number; responseText: string; latencyMs: number; via: string }): Analysis {
+    const entry = this.relays.get(input.inputHash);
+    if (!entry) throw new Error('Unknown or expired relay request; request a new one');
+    this.relays.delete(input.inputHash);
+    const analyzer = this.analyzer as Partial<{ parseResponse(t: string, b: EvidenceBundle, k: string[], l: number): Awaited<ReturnType<Analyzer['analyze']>> }>;
+    const { bundle } = entry;
+    const base: Analysis = { id: randomUUID(), status: 'unavailable', summary: '', findings: [], model: null, latencyMs: input.latencyMs, usage: null, attempts: 1, dropped: [], inputHash: bundle.inputHash,
+      revision: bundle.revision, error: null, at: this.clock(),
+      evidenceRefs: { symbols: bundle.symbols.map(s => s.key), files: [...new Set([...bundle.symbols.map(s => s.file), ...(bundle.changes ?? []).map(c => c.file)])], sessions: bundle.intents.map(i => i.sessionId), candidates: bundle.candidates.length } };
+    if (input.httpStatus < 200 || input.httpStatus >= 300) {
+      return this.record({ ...base, error: `Meta API HTTP ${input.httpStatus} (relayed by ${input.via}): ${input.responseText.slice(0, 300)}` });
+    }
+    try {
+      const result = analyzer.parseResponse!(input.responseText, bundle, entry.known, input.latencyMs);
+      const status: Analysis['status'] = this.buildEvidence().inputHash === bundle.inputHash ? 'ok' : 'stale';
+      return this.record({ ...base, status, summary: result.summary, findings: result.findings, model: result.model, usage: result.usage, dropped: result.dropped,
+        error: status === 'stale' ? 'Code or intents changed while the model was thinking; kept for reference. Run again.' : null });
+    } catch (error) {
+      if (error instanceof AnalysisInvalid) return this.record({ ...base, status: 'invalid', error: `${error.message} (relayed by ${input.via})` });
+      throw error;
+    }
+  }
+
   /** Runs (or reuses) an analysis for the current evidence. Concurrent callers share one in-flight request. */
   analyze(sessionId: string, options: { force?: boolean } = {}): Promise<Analysis> {
     const session = this.coordinator.heartbeat(sessionId);

@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +36,13 @@ function runHook(event: string, env: Record<string, string>, stdin: unknown, hoo
 async function command(url: string, token: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const response = await fetch(`${url}/command`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return { status: response.status, json: await response.json() as Record<string, unknown> };
+}
+async function runAsync(args: string[], env: Record<string, string>): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = ''; let stderr = '';
+  child.stdout!.on('data', c => { stdout += String(c); }); child.stderr!.on('data', c => { stderr += String(c); });
+  const [status] = await once(child, 'exit') as [number | null];
+  return { status, stdout, stderr };
 }
 const sha = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
@@ -128,6 +136,49 @@ test('laptop sync: an edit that breaks another member\'s uncommitted work is cau
       assert.equal(finding.severity, 'error');
       const prompt = runHook('prompt', vishalEnv, { session_id: 'v1', cwd: vishal, prompt: 'continue' });
       assert.match(prompt.out.additionalContext!, /sanika's uncommitted changes break vishal's work/);
+
+      // Laptop relay: Hive builds the Muse Spark request, the laptop sends it with its own key, Hive validates the answer.
+      let seenAuth = ''; let seenBody = ''; let reply = { status: 200, text: '' };
+      const fakeMeta = createHttpServer((req, res) => {
+        let body = ''; req.on('data', c => { body += String(c); });
+        req.on('end', () => { seenAuth = String(req.headers.authorization); seenBody = body; res.writeHead(reply.status, { 'Content-Type': 'application/json' }).end(reply.text); });
+      });
+      fakeMeta.listen(0, '127.0.0.1'); await once(fakeMeta, 'listening');
+      const metaUrl = `http://127.0.0.1:${(fakeMeta.address() as { port: number }).port}/v1`;
+      // Both agents registered with their own member tokens (as the MCP tools do), so findings can name them.
+      const sSession = String((await command(url, sanikaEnv.HIVE_TOKEN, { action: 'register', name: 'pricing agent' })).json.id);
+      const vSession = String((await command(url, vishalEnv.HIVE_TOKEN, { action: 'register', name: 'receipt agent' })).json.id);
+      try {
+        reply = { status: 200, text: JSON.stringify({ model: 'muse-spark-1.3', usage: { prompt_tokens: 900, completion_tokens: 120, total_tokens: 1020 },
+          choices: [{ message: { content: JSON.stringify({ summary: 'Units disagree', findings: [
+            { sessionIds: [sSession, vSession], kind: 'semantic_conflict', explanation: 'getPrice now takes a unit while receipts assume dollars', evidence: ['src/pricing.ts changes getPrice', 'src/invoice.ts formats dollars'], suggestion: 'Agree on cents', confidence: 'high' },
+            { sessionIds: [vSession], kind: 'needs_clarification', explanation: 'made up', evidence: ['nothing real here'], suggestion: 'x', confidence: 'low' }] }) } }] }) };
+        const relay = await runAsync(['--disable-warning=ExperimentalWarning', vishalEnv.HOOK_FILE!, 'analyze'], { ...vishalEnv, MODEL_API_KEY: 'laptop-key', HIVE_MODEL_BASE_URL: metaUrl });
+        assert.equal(relay.status, 0, relay.stdout + relay.stderr);
+        assert.match(relay.stdout, /Hive analysis: ok \(muse-spark-1\.3, \d+ ms, relayed by this laptop\)/);
+        assert.match(relay.stdout, /getPrice now takes a unit/);
+        assert.match(relay.stdout, /discarded 1 uncited/);
+        assert.equal(seenAuth, 'Bearer laptop-key');
+        const sent = JSON.parse(seenBody) as { model: string; messages: { content: string }[] };
+        assert.equal(sent.model, 'muse-spark-1.3');
+        assert.match(sent.messages[1]!.content, /getPrice\(unit: 'cents' \| 'dollars'\)/, 'the laptop diffs are in the evidence');
+        const recorded = await (await fetch(`${url}/snapshot`, { headers: { Authorization: `Bearer ${admin}` } })).json() as { analysis: { status: string; findings: unknown[]; usage: { totalTokens: number } } };
+        assert.equal(recorded.analysis.status, 'ok');
+        assert.equal(recorded.analysis.findings.length, 1);
+        assert.equal(recorded.analysis.usage.totalTokens, 1020);
+        // A model error is recorded as unavailable (not "no conflict"), and the laptop says so.
+        reply = { status: 404, text: '{"error":{"message":"The requested model was not found."}}' };
+        const failed = await runAsync(['--disable-warning=ExperimentalWarning', vishalEnv.HOOK_FILE!, 'analyze'], { ...vishalEnv, MODEL_API_KEY: 'laptop-key', HIVE_MODEL_BASE_URL: metaUrl });
+        assert.equal(failed.status, 1);
+        assert.match(failed.stdout, /Hive analysis: unavailable/);
+        assert.match(failed.stdout, /HTTP 404 \(relayed by vishal\)/);
+        // Without a key on the laptop, nothing is sent.
+        const nokey = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', vishalEnv.HOOK_FILE!, 'analyze'], { env: { ...vishalEnv, MODEL_API_KEY: '' }, encoding: 'utf8' });
+        assert.equal(nokey.status, 1);
+        assert.match(nokey.stdout, /MODEL_API_KEY is not set/);
+        // A response for an unknown request is refused.
+        assert.equal((await command(url, sanikaEnv.HIVE_TOKEN, { action: 'analysis_relay_submit', inputHash: 'nope', httpStatus: 200, responseText: '{}', latencyMs: 1 })).status, 400);
+      } finally { fakeMeta.close(); }
 
       // Viewer-safe view lists who has changes, with relative paths only.
       const view = await (await fetch(`${url}/api/view`, { headers: { Authorization: `Bearer ${viewer}` } })).json() as { remote: { members: { member: string; files: { path: string }[] }[] } };
