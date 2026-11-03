@@ -8,6 +8,7 @@ import { ModelNotice, Page, useHive, useNow } from '@/shell';
 import { AgentCard } from './overview/AgentCard';
 import { AgreementsRail } from './overview/AgreementsRail';
 import { ConflictCard } from './overview/ConflictCard';
+import { LocalChanges } from './overview/LocalChanges';
 import { currentConflict } from './overview/derive';
 import styles from './overview/overview.module.css';
 
@@ -42,6 +43,7 @@ export default function Overview() {
             : 'Members can already sign in. Connect a coding tool with a member token and its agent shows up here as soon as it registers.'}
           action={readOnly ? undefined : <Button variant="primary" onClick={() => navigate('/connect')}>Connect an agent</Button>}
         />
+        {snapshot.remote?.members.length ? <LocalChanges remote={snapshot.remote} now={now} /> : null}
       </Page>
     );
   }
@@ -78,6 +80,7 @@ export default function Overview() {
             <div className={styles.areaRail}><AgreementsRail contracts={snapshot.contracts} /></div>
             <div className={styles.areaAgents}>{agentsSection}</div>
           </div>
+          <LocalChanges remote={snapshot.remote} now={now} />
         </>
       ) : (
         <>
@@ -92,6 +95,7 @@ export default function Overview() {
             />
             <AgreementsRail contracts={snapshot.contracts} />
           </div>
+          <LocalChanges remote={snapshot.remote} now={now} />
         </>
       )}
     </Page>

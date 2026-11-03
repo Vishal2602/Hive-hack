@@ -49,14 +49,13 @@ src/
   hooks/hook.ts         client lifecycle hook adapter (Claude Code JSON; Muse Code plain text + capture)
 web/                    React + Vite dashboard (Arc UI components, Linear-style sidebar); built to web/dist,
                         served by the daemon at /ui. Table-of-content rail is used ONLY on the Activity screen.
-tests/                  19 files, 73 tests (node --test), incl. Docker build when Docker is available
+tests/                  19 files, 73 tests (node --test), 
 scripts/seed-demo.ts    starts a live, realistic workspace for screenshots and demos
 scripts/smoke-model.ts  one real Muse Spark call; prints model, latency, tokens; never the key
 demo/scenario.ts        labelled scripted replay of the whole flow (exit 0 = all states reached)
 demo/evaluate.ts        ACCEPTANCE scenarios with/without Hive -> evaluation/results-*.{json,md}
-deploy/                 entrypoint.sh + playground/ snapshot used by the Docker image
-Dockerfile, railway.json, docs/DEPLOY.md   hosting package (not deployed yet)
-fixtures/billing        tiny sample app used by tests; ../hive-playground is the bigger sample repo
+railway.json, docs/DEPLOY.md   hosting config, Node builder, no Docker (not deployed yet)
+fixtures/billing        tiny sample app used by tests; ../hive-playground (outside this repo) is the bigger sample
 config/                 client config templates (Claude Code MCP + hooks; Muse Code best guess)
 docs/                   PRODUCT, ARCHITECTURE, BUILD_PLAN, ACCEPTANCE, PROGRESS, CLIENTS, CLOUD, DEPLOY,
                         HIVE_CLOUD_PLAN, UI_BRIEF, superpowers/specs/ (approved design spec)
@@ -70,11 +69,10 @@ HIVE_CLOUD_HANDOFF.md   code-verified description of the pre-cloud codebase (fac
 - Cloud build (Nov 2 to 3): member tokens with roles; viewer-safe `/api/view` (no paths, excerpts, diffs or
   secrets); `/me`; hostable daemon (`HIVE_HOST`, `PORT`, `/healthz`, SIGTERM drain, cached snapshots, fixed
   `/events` paging); asynchronous verification (`running | passed | failed | inconclusive | error`, never
-  blocks heartbeats); MCP over HTTP at `/mcp`; Dockerfile + entrypoint + `railway.json` + `docs/DEPLOY.md`;
+  blocks heartbeats); MCP over HTTP at `/mcp`; `railway.json` + `docs/DEPLOY.md` (Docker removed 2026-11-03);
   React dashboard core (live API client, store, Linear sidebar) served at `/ui`.
 - Dashboard screens wired to live data; design review approved; local release checks passed.
-- Quality: `npm run typecheck` clean; `npm test` 107/107 (about 20 s, includes a real Docker build when Docker
-  runs); live smoke of health, viewer refusal and token issuance passed.
+- Quality: `npm run typecheck` clean; `npm test` 105/105 (about 20 s); live smoke of health, viewer refusal and token issuance passed.
 
 ## 5. Build status at the last update (2026-11-03, commit 91a7491)
 The cloud build is complete and committed. Dashboard screens are wired to live data (commit 46bf54d), the
@@ -82,7 +80,7 @@ design manager approved the live app on its third review round (68 screenshots a
 dark plus viewer and offline states; sidebar is Linear-style; the table-of-content rail appears only on
 Activity), and the release checks that can run locally all passed (commit 91a7491): restart persistence,
 slow verification with live heartbeats (health, snapshot and heartbeat under 5 ms during a 5 s run), viewer
-refusal with a secret-free `web/dist`, journal recovery, Docker build and run. Test suite: 107/107.
+refusal with a secret-free `web/dist`, journal recovery. (A Docker build also passed then; Docker was removed on 2026-11-03.)
 
 ## 6. What is left (priority order)
 1. **Hosting.** Nothing is deployed. Plan of record: one Railway service + volume (`docs/HIVE_CLOUD_PLAN.md`,
@@ -154,4 +152,4 @@ Co-located agents can also use the stdio adapter (`config/claude-code.mcp.exampl
   `tests/mcp-http.test.ts`, `tests/hostable.test.ts`, `tests/verify-async.test.ts`.
 - API surface: `src/server/schemas.ts` (every command), `src/server/daemon.ts` (every route).
 - Dashboard data contract: `src/service.ts` (`ServiceSnapshot`, `viewCached`), `web/src/api/`.
-- Deployment: `docs/DEPLOY.md`, `Dockerfile`, `deploy/entrypoint.sh`, `railway.json`.
+- Deployment: `docs/DEPLOY.md`, `railway.json`.

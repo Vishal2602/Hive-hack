@@ -192,6 +192,27 @@ Remaining for the cloud demo (not done):
    for admins/members the agreement page lists only runs it saw while polling (the snapshot carries the
    latest run per agreement); `HIVE_CLOUD_HANDOFF.md` still describes the pre-cloud code in places.
 
+## Docker removed (2026-11-03)
+Dockerfile, `.dockerignore`, `deploy/entrypoint.sh` and `tests/container.test.ts` deleted; `railway.json` now uses
+Railway's Node builder (`npm ci && npm run build:web`, start `npm run start:prod`). The bundled playground snapshot
+moved out of the repo to `../hive-playground` (its own git repo; client configs point at this checkout). Nothing on
+the host creates `/data/repo` automatically any more; the planned laptop-sync work will clone the team repo.
+Direction chosen by the team: each teammate's agent runs on their own laptop and sends changed files to the hosted
+hub, which compiles the combination.
+
+## Laptop sync (built + tested 2026-11-03; not yet run with two real people)
+- `src/remote/service.ts`: members' changed files in SQLite (`remote_files`, migration 6); in-memory combined
+  type-check (base + others + mine + proposed edit, baseline-relative); `structural_incompatibility` findings
+  attributing breaks to the member whose change caused them; diffs as model evidence.
+- Commands `remote_status`, `remote_push`, `remote_check` (members/admins; files owned by the caller's member name).
+- Hook (`src/hooks/hook.ts`): local root from the client's `cwd`; full sync on session start/prompt; pre-write
+  check derived from Edit/Write/MultiEdit input; post-write push. Gate on breaking another member's files.
+- `/hook.mjs` and `/connect.mjs` served by the daemon (transpiled, secret-free); one-line setup on the Connect screen.
+- `HIVE_REPO_URL` first-boot clone (`src/server/prepare.ts`). Overview shows a "Laptop changes" panel.
+- Tests: `tests/remote.test.ts` (two laptop clones + served setup + gate + findings + revert + path safety + model
+  evidence + first boot). Suite 109/109.
+- Not done: live two-person run, Railway deploy, Muse Code hook (output format still unverified).
+
 ## Remaining (human or access needed)
 1. Put a real `MODEL_API_KEY` in `.env`, run `npm run demo` and `npm run evaluate -- --repeats 3`
    to produce the first live Muse Spark analyses; keep the written results (do not cherry-pick).

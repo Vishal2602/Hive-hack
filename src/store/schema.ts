@@ -194,4 +194,18 @@ export const migrations: string[] = [
   ALTER TABLE verification_runs ADD COLUMN finished_at INTEGER;
   UPDATE verification_runs SET status = CASE WHEN passed = 1 THEN 'passed' ELSE 'failed' END, finished_at = created_at;
   `,
+  // Laptop sync: each member's uncommitted changes, pushed by their client hook. Content NULL = file deleted.
+  // Kept in the database only; never written into the hub checkout.
+  `
+  CREATE TABLE remote_files(
+    repository_id TEXT NOT NULL REFERENCES repositories(id),
+    member TEXT NOT NULL,
+    path TEXT NOT NULL,
+    content TEXT,
+    hash TEXT NOT NULL,
+    base_commit TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(repository_id, member, path)
+  );
+  `,
 ];

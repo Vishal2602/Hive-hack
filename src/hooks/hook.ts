@@ -6,14 +6,21 @@
  *
  * Coverage is precise and limited: only tool calls the client routes through its hooks are seen.
  * Edits made by other programs are detected afterwards by hash drift, never blocked.
+ *
+ * Laptop sync: when the hook knows the local checkout (the client's `cwd`, or HIVE_LOCAL_ROOT), it sends
+ * changed .ts/.tsx files to the daemon, which type-checks them together with other members' changes.
+ * Before a write it sends the file as it will look after the edit and asks whether that breaks anyone.
  */
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { callDaemon } from '../server/client.ts';
+import { MAX_FILE_BYTES, checkPath } from '../remote/paths.ts';
 
 type Snapshot = { sessions: { id: string; name: string }[]; findings: { kind: string; severity: string; sessions: string[]; evidence: string }[];
   contracts: { id: string; version: number; title: string; status: string; participants: string[]; acknowledgements: string[]; producerSymbol: string | null }[];
   repository: { revision: number }; analysis: { status: string; summary: string; findings: { kind: string; explanation: string }[] } | null };
+type RemoteCheck = { newDiagnostics: { file: string; line: number; code: number; message: string; owners: string[] }[]; breaks: string[]; warnings: string[]; member: string };
 type HookCheck = { file: string; pendingContracts: { id: string; version: number; title: string; missing: string[] }[]; declaredBy: { name: string; task: string }[]; dependentSessions: { name: string; task: string }[] };
 
 const [, , eventArg = 'prompt', ...rest] = process.argv;
@@ -33,6 +40,67 @@ function log(entry: Record<string, unknown>): void {
     appendFileSync(`${dir}/hook-log.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), client, ...entry })}\n`);
   } catch { /* logging must never break the client */ }
 }
+// ---- laptop sync helpers ----------------------------------------------------------------------
+function git(root: string, args: string[]): string | null {
+  const result = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
+  return result.status === 0 ? result.stdout : null;
+}
+/** The local checkout root: HIVE_LOCAL_ROOT, else the client's cwd lifted to its git top level. Null when unknown. */
+function localRoot(input: Record<string, unknown>): string | null {
+  const start = process.env.HIVE_LOCAL_ROOT?.trim() || (typeof input.cwd === 'string' ? input.cwd : '');
+  if (!start || !existsSync(start)) return null;
+  const top = git(start, ['rev-parse', '--show-toplevel'])?.trim();
+  return realpathSync(top || start);
+}
+/** Repository-relative POSIX path of a file inside the local root, or null when outside it. */
+function localRel(root: string, file: string, cwd: string): string | null {
+  const abs = isAbsolute(file) ? file : resolve(cwd, file);
+  let real = abs;
+  try { real = existsSync(abs) ? realpathSync(abs) : resolve(realpathSync(dirname(abs)), abs.slice(dirname(abs).length + 1)); } catch { real = abs; }
+  const rel = relative(root, real);
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null;
+  return rel.split(sep).join('/');
+}
+function readOrNull(path: string): string | null {
+  try { return readFileSync(path, 'utf8'); } catch { return null; }
+}
+/** The file as it will look after an Edit/Write/MultiEdit tool call, or undefined when it cannot be derived. */
+function proposedContent(toolName: string, toolInput: Record<string, unknown>, abs: string): string | undefined {
+  if (typeof toolInput.content === 'string' && (toolName === 'Write' || !('old_string' in toolInput))) return toolInput.content;
+  const current = readOrNull(abs) ?? '';
+  const edits = Array.isArray(toolInput.edits) ? toolInput.edits as Record<string, unknown>[] : [toolInput];
+  let text = current;
+  for (const edit of edits) {
+    if (typeof edit.old_string !== 'string' || typeof edit.new_string !== 'string') return undefined;
+    if (edit.old_string === '') { text = edit.new_string + text; continue; }
+    if (!text.includes(edit.old_string)) return undefined;
+    text = edit.replace_all === true ? text.split(edit.old_string).join(edit.new_string) : text.replace(edit.old_string, () => edit.new_string as string);
+  }
+  return text;
+}
+/** Every syncable file that differs from the hub's base commit (committed, staged, unstaged or untracked). */
+function changedFiles(root: string, hubBase: string | null): string[] {
+  const base = hubBase && git(root, ['cat-file', '-e', `${hubBase}^{commit}`]) !== null ? hubBase : 'HEAD';
+  const diff = git(root, ['diff', '--name-only', base]) ?? '';
+  const untracked = git(root, ['ls-files', '--others', '--exclude-standard']) ?? '';
+  return [...new Set([...diff.split('\n'), ...untracked.split('\n')].map(l => l.trim()).filter(Boolean))].filter(p => checkPath(p) === null).slice(0, 200);
+}
+async function fullSync(root: string): Promise<{ stored: string[]; warnings: string[] }> {
+  const status = await callDaemon('/command', { action: 'remote_status' }) as { baseCommit: string | null };
+  const files = changedFiles(root, status.baseCommit).map(path => {
+    const content = readOrNull(resolve(root, path));
+    return { path, content: content !== null && Buffer.byteLength(content) > MAX_FILE_BYTES ? null : content };
+  }).filter(f => f.content === null || Buffer.byteLength(f.content) <= MAX_FILE_BYTES);
+  const head = git(root, ['rev-parse', 'HEAD'])?.trim() ?? null;
+  return await callDaemon('/command', { action: 'remote_push', files, baseCommit: head, replace: true }) as { stored: string[]; warnings: string[] };
+}
+function describeBreaks(check: RemoteCheck, rel: string): string {
+  const lines = check.newDiagnostics.filter(d => d.owners.length).slice(0, 5)
+    .map(d => `- ${d.file}:${d.line} TS${d.code}: ${d.message} (${d.owners.join(', ')} is changing this file)`);
+  return `Hive: this edit to ${rel} would break work in progress by ${check.breaks.join(', ')}:\n${lines.join('\n')}\n`
+    + 'Coordinate before writing: propose the new interface as a Ghost Contract (hive_propose_contract) so they can sign it, or keep the old signature working.';
+}
+
 function summarize(snapshot: Snapshot): string {
   const names = new Map(snapshot.sessions.map(s => [s.id, s.name]));
   const name = (id: string) => names.get(id) ?? id.slice(0, 8);
@@ -72,29 +140,56 @@ let input: Record<string, unknown> = {};
 try { input = raw ? JSON.parse(raw) as Record<string, unknown> : {}; } catch { input = { unparsed: raw.slice(0, 2000) }; }
 log({ event: eventArg, input });
 const toolInput = (input.tool_input ?? input.toolInput ?? input.input ?? {}) as Record<string, unknown>;
-const file = String(toolInput.file_path ?? toolInput.filePath ?? toolInput.path ?? input.file_path ?? '');
+const toolName = String(input.tool_name ?? input.toolName ?? '');
+const rawFile = String(toolInput.file_path ?? toolInput.filePath ?? toolInput.path ?? input.file_path ?? '');
+const root = process.env.HIVE_SYNC === '0' ? null : localRoot(input);
+const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
+// In laptop mode the daemon only understands repository-relative paths.
+const rel = root && rawFile ? localRel(root, rawFile, cwd) : null;
+const file = rel ?? rawFile;
+const syncable = rel !== null && checkPath(rel) === null;
 
 try {
   switch (eventArg) {
     case 'session-start':
     case 'prompt': {
+      const synced = root ? await fullSync(root) : null;
       await callDaemon('/command', { action: 'sync' });
-      emit(eventArg, { context: summarize(await callDaemon('/snapshot') as Snapshot) });
+      const notes = synced ? [`Hive is checking your local changes (${synced.stored.length} file(s) synced from ${root}).`, ...synced.warnings] : [];
+      emit(eventArg, { context: [summarize(await callDaemon('/snapshot') as Snapshot), ...notes].join('\n') });
       break;
     }
     case 'pre-write': {
       if (!file) { emit(eventArg, {}); break; }
       const check = await callDaemon('/command', { action: 'hook_check', file }) as HookCheck;
       const reasons: string[] = [];
+      const notes: string[] = [];
+      if (syncable) {
+        const content = proposedContent(toolName, toolInput, resolve(root!, rel!));
+        if (content !== undefined) {
+          const head = git(root!, ['rev-parse', 'HEAD'])?.trim() ?? null;
+          const remote = await callDaemon('/command', { action: 'remote_check', path: rel, content, baseCommit: head }) as RemoteCheck;
+          log({ event: 'remote-check', file: rel, breaks: remote.breaks, newDiagnostics: remote.newDiagnostics.length });
+          if (remote.breaks.length) reasons.push(describeBreaks(remote, rel!));
+          const shared = remote.newDiagnostics.filter(d => !d.owners.length && d.file !== rel).slice(0, 5);
+          if (shared.length) notes.push(`Hive: this edit adds type errors in shared code: ${shared.map(d => `${d.file}:${d.line} TS${d.code} ${d.message}`).join('; ')}`);
+          notes.push(...remote.warnings);
+        }
+      }
       for (const c of check.pendingContracts) reasons.push(`${check.file} is the producer file of Ghost Contract "${c.title}" (${c.id.slice(0, 8)} v${c.version}), proposed but not yet accepted by ${c.missing.length} participant(s). Acknowledge/reject it with hive_acknowledge or hive_reject_contract first.`);
       const peers = check.declaredBy.filter(d => d.name).map(d => `${d.name} (${d.task})`);
       const context = [peers.length ? `Hive: ${check.file} is in the declared scope of: ${peers.join('; ')}.` : '',
-        check.dependentSessions.length ? `Hive: symbols in ${check.file} are used by work of: ${check.dependentSessions.map(d => `${d.name} (${d.task})`).join('; ')}. Consider hive_preview_operation or a Ghost Contract.` : ''].filter(Boolean).join('\n');
+        check.dependentSessions.length ? `Hive: symbols in ${check.file} are used by work of: ${check.dependentSessions.map(d => `${d.name} (${d.task})`).join('; ')}. Consider hive_preview_operation or a Ghost Contract.` : '',
+        ...notes].filter(Boolean).join('\n');
       if (reasons.length) emit(eventArg, { decision: gate === 'warn' ? 'allow' : gate, reason: reasons.join('\n'), context: [context, ...reasons].filter(Boolean).join('\n') });
       else emit(eventArg, { context: context || undefined });
       break;
     }
     case 'post-write': {
+      if (syncable) {
+        const head = git(root!, ['rev-parse', 'HEAD'])?.trim() ?? null;
+        await callDaemon('/command', { action: 'remote_push', files: [{ path: rel, content: readOrNull(resolve(root!, rel!)) }], baseCommit: head });
+      }
       const changes = await callDaemon('/command', { action: 'sync' }) as { changed: string[]; added: string[]; removed: string[] };
       const touched = [...changes.changed, ...changes.added, ...changes.removed];
       const snapshot = await callDaemon('/snapshot') as Snapshot;

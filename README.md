@@ -17,7 +17,7 @@ Node 22.18 or newer (built and tested on v22.22.3; native TypeScript execution a
 ## Run
 ```bash
 npm install
-npm run check          # root typecheck + 107 tests (about a minute; spawns daemons and node --test children)
+npm run check          # root typecheck + 105 tests (about a minute; spawns daemons and node --test children)
 npm run build:web      # builds the React dashboard into web/dist (the daemon serves it at /ui)
 npm start              # the one shared daemon (loopback by default), dashboard at http://127.0.0.1:4317/ui
 npm run demo           # SCRIPTED REPLAY of the full flow on a temp copy of fixtures/billing (exit 0 = all states reached)
@@ -73,9 +73,14 @@ MCP tools: `hive_register`, `hive_set_intent`, `hive_context`, `hive_symbol`, `h
 `hive_revise_contract`, `hive_reject_contract`, `hive_contract_check`, `hive_verify`, `hive_claim`,
 `hive_analyze`, `hive_finish`.
 
+## Laptop sync (each teammate on their own machine)
+Hive keeps each member's uncommitted `.ts`/`.tsx` changes (sent by their Claude Code hook) and type-checks them
+together, so an edit that would break a teammate's in-progress code is caught before it is written. Setup is one
+command from the Connect screen. Details and limits: `docs/DEPLOY.md` (Laptop sync).
+
 ## Deploying
-The container and Railway steps are in `docs/DEPLOY.md` (`docker build -t hive .`, one volume at
-`/data`, `railway.json`). **Nothing has been deployed by this build**; the image was built and run locally.
+Hive runs as a plain Node program (no Docker). Hosting steps for Railway's Node builder are in
+`docs/DEPLOY.md` (`railway.json`, one volume at `/data`). **Nothing has been deployed.**
 
 ## Implemented and tested (see docs/PROGRESS.md for detail)
 - One daemon, SQLite durability (`node:sqlite`, WAL, migrations), repositories/workspaces
@@ -96,8 +101,8 @@ The container and Railway steps are in `docs/DEPLOY.md` (`docker build -t hive .
 - Client hook adapter (Claude Code JSON contract; Muse plain text + raw payload capture),
   scripted demo, evaluation harness.
 - Cloud build (2026-11-02/03): admin/member/viewer tokens, hostable daemon (`/healthz`, graceful
-  SIGTERM, cached snapshot, paged events), asynchronous verification, HTTP MCP at `/mcp`, Dockerfile +
-  Railway config, React dashboard at `/ui`. Local release checks: `VERIFICATION.md`.
+  SIGTERM, cached snapshot, paged events), asynchronous verification, HTTP MCP at `/mcp`,
+  Railway config (Docker packaging removed 2026-11-03), React dashboard at `/ui`. Local release checks: `VERIFICATION.md`.
 
 ## Not done / not verified
 - Live model: `evaluation/results-2026-11-02T23-36-49-615Z.md` records a configured `muse-spark-1.3`

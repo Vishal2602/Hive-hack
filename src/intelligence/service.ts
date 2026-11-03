@@ -4,7 +4,7 @@ import type { Coordinator } from '../domain/coordinator.ts';
 import type { Finding } from '../domain/types.ts';
 import { sha256, type GraphIndex } from '../graph/index.ts';
 import type { Store } from '../store/sqlite.ts';
-import { AnalysisInvalid, AnalysisUnavailable, type Analysis, type Analyzer, type EvidenceBundle, type EvidenceDependent, type EvidenceSymbol } from './types.ts';
+import { AnalysisInvalid, AnalysisUnavailable, type Analysis, type Analyzer, type EvidenceBundle, type EvidenceChange, type EvidenceDependent, type EvidenceSymbol } from './types.ts';
 
 export interface AnalysisServiceOptions {
   store: Store;
@@ -13,6 +13,8 @@ export interface AnalysisServiceOptions {
   sync: (workspaceId: string) => unknown;
   findings: () => Finding[];
   analyzer: Analyzer;
+  /** Laptop changes to include as evidence (bounded by the provider). */
+  changes?: () => EvidenceChange[];
   clock?: () => number;
 }
 type Row = { id: string; input_hash: string; revision: number; status: Analysis['status']; model: string | null; latency_ms: number | null; usage_json: string | null; result_json: string | null; error: string | null; created_at: number };
@@ -33,12 +35,13 @@ export class AnalysisService {
   private readonly sync: (workspaceId: string) => unknown;
   private readonly findings: () => Finding[];
   private readonly analyzer: Analyzer;
+  private readonly changes: () => EvidenceChange[];
   private readonly clock: () => number;
   private inFlight: Promise<Analysis> | null = null;
 
   constructor(options: AnalysisServiceOptions) {
     this.store = options.store; this.coordinator = options.coordinator; this.graphFor = options.graph; this.sync = options.sync;
-    this.findings = options.findings; this.analyzer = options.analyzer; this.clock = options.clock ?? Date.now;
+    this.findings = options.findings; this.analyzer = options.analyzer; this.changes = options.changes ?? (() => []); this.clock = options.clock ?? Date.now;
   }
 
   /** Bounded evidence: live intents, candidates, live contracts, declarations named by intents/candidates, their dependents. */
@@ -68,8 +71,10 @@ export class AnalysisService {
       }
     }
     const revision = this.coordinator.revision();
-    const inputHash = sha256(JSON.stringify({ revision, intents: intents.map(i => [i.sessionId, i.revision]), contracts: contracts.map(c => [c.id, c.version, c.status]), candidates: candidates.map(c => [c.kind, c.sessions, c.evidence]), symbols: symbols.map(s => s.key) }));
-    return { revision, inputHash, intents, candidates, contracts, symbols, dependents };
+    const changes = this.changes();
+    const inputHash = sha256(JSON.stringify({ revision, intents: intents.map(i => [i.sessionId, i.revision]), contracts: contracts.map(c => [c.id, c.version, c.status]), candidates: candidates.map(c => [c.kind, c.sessions, c.evidence]), symbols: symbols.map(s => s.key),
+      ...(changes.length ? { changes: changes.map(c => [c.member, c.file, sha256(c.diff)]) } : {}) }));
+    return { revision, inputHash, intents, candidates, contracts, symbols, dependents, ...(changes.length ? { changes } : {}) };
   }
 
   private rowToAnalysis(row: Row): Analysis {
@@ -113,9 +118,9 @@ export class AnalysisService {
   private async run(bundle: EvidenceBundle, workspaceId: string): Promise<Analysis> {
     const base: Analysis = { id: randomUUID(), status: 'unavailable', summary: '', findings: [], model: null, latencyMs: null, usage: null, attempts: 0, dropped: [], inputHash: bundle.inputHash,
       revision: bundle.revision, error: null, at: this.clock(),
-      evidenceRefs: { symbols: bundle.symbols.map(s => s.key), files: [...new Set(bundle.symbols.map(s => s.file))], sessions: bundle.intents.map(i => i.sessionId), candidates: bundle.candidates.length } };
+      evidenceRefs: { symbols: bundle.symbols.map(s => s.key), files: [...new Set([...bundle.symbols.map(s => s.file), ...(bundle.changes ?? []).map(c => c.file)])], sessions: bundle.intents.map(i => i.sessionId), candidates: bundle.candidates.length } };
     try {
-      const result = await this.analyzer.analyze(bundle, bundle.intents.map(i => i.sessionId));
+      const result = await this.analyzer.analyze(bundle, [...new Set([...bundle.intents.map(i => i.sessionId), ...(bundle.changes ?? []).flatMap(c => c.sessionIds)])]);
       // Revalidate: inputs may have moved while the model was thinking.
       const after = this.buildEvidence(workspaceId);
       const status: Analysis['status'] = after.inputHash === bundle.inputHash ? 'ok' : 'stale';

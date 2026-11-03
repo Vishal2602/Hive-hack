@@ -7,12 +7,15 @@ import { Store } from '../store/sqlite.ts';
 import { AuthError, OPERATOR_MEMBER, authorizeCommand, authorizeRoute, resolveAuth, type Auth } from './auth.ts';
 import { createMcpHttpHandler } from './mcpHttp.ts';
 import { commandSchema, type Command } from './schemas.ts';
+import { prepareRepository } from './prepare.ts';
+import { connectScript, hookScript } from './scripts.ts';
 import { createUiHandler } from './static.ts';
 import { TokenService } from './tokens.ts';
 
 const token = process.env.HIVE_TOKEN;
 if (!token || token === 'replace-with-a-local-random-token') throw new Error('Set a non-default HIVE_TOKEN in .env');
 const root = resolve(process.env.HIVE_PROJECT_ROOT ?? process.cwd());
+prepareRepository(root);
 const dataDir = resolve(process.env.HIVE_DATA_DIR ?? `${root}/.hive`);
 const dbPath = process.env.HIVE_DB === ':memory:' ? ':memory:' : `${dataDir}/hive.db`;
 const store = new Store(dbPath);
@@ -63,6 +66,9 @@ function dispatch(command: Command, auth: Auth): unknown | Promise<unknown> {
     case 'analyze': return service.analyze(command.sessionId, { force: command.force });
     case 'sync': return service.sync();
     case 'hook_check': return service.hookCheck(command.file);
+    case 'remote_status': return { ...service.remote.state(), member: auth.member };
+    case 'remote_push': return service.remote.push(auth.member, { files: command.files, baseCommit: command.baseCommit ?? null, replace: command.replace });
+    case 'remote_check': return service.remote.check(auth.member, { path: command.path, content: command.content }, command.baseCommit ?? null);
     case 'member_list': return service.members(auth.role === 'admin' ? tokens.list() : []);
     case 'token_create': return tokens.create({ label: command.label, member: command.member, role: command.role, createdBy: auth.tokenId ?? auth.member });
     case 'token_list': return tokens.list();
@@ -114,6 +120,18 @@ const server = createServer(async (request, response) => {
     }
     response.writeHead(body.ok ? 200 : 503, { 'Content-Type': 'application/json' }).end(JSON.stringify(body)); return;
   }
+  // Laptop setup scripts: public, secret-free JavaScript (see src/server/scripts.ts).
+  if (request.method === 'GET' && (requestPath === '/hook.mjs' || requestPath === '/connect.mjs')) {
+    try {
+      const forwarded = String(request.headers['x-forwarded-proto'] ?? '').split(',')[0]!.trim();
+      const hub = publicUrl ?? `${forwarded === 'https' ? 'https' : 'http'}://${request.headers.host ?? `127.0.0.1:${portSource}`}`;
+      const body = requestPath === '/hook.mjs' ? hookScript() : connectScript(hub);
+      response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }).end(body);
+    } catch (error) {
+      response.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: error instanceof Error ? error.message : 'script build failed' }));
+    }
+    return;
+  }
   if (draining && request.method === 'POST') {
     response.writeHead(503, { 'Content-Type': 'application/json', Connection: 'close' }).end(JSON.stringify({ error: 'draining' })); return;
   }
@@ -163,7 +181,8 @@ const server = createServer(async (request, response) => {
     let body = '';
     for await (const chunk of request) {
       body += String(chunk);
-      if (Buffer.byteLength(body) > 65536) throw new Error('Request too large');
+      // 4 MB: laptop sync uploads changed source files (each capped at 256 KB by the schema).
+      if (body.length > 4 * 1024 * 1024) throw new Error('Request too large');
     }
     const command = commandSchema.parse(JSON.parse(body));
     authorizeCommand(auth, command, id => coordinator.session(id));

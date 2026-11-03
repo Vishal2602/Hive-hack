@@ -2,6 +2,8 @@ import type { Contract, Finding, Intent } from '../domain/types.ts';
 
 export interface EvidenceSymbol { key: string; file: string; line: number; kind: string; signature: string | null; excerpt: string }
 export interface EvidenceDependent { symbol: string; from: string; file: string; line: number }
+/** A member's uncommitted change, synced from their laptop: a bounded unified diff against the hub's base. */
+export interface EvidenceChange { member: string; sessionIds: string[]; file: string; diff: string }
 export interface EvidenceBundle {
   revision: number;
   inputHash: string;
@@ -10,6 +12,8 @@ export interface EvidenceBundle {
   contracts: Pick<Contract, 'id' | 'version' | 'title' | 'producerSymbol' | 'declaration' | 'behaviorNotes' | 'participants' | 'status'>[];
   symbols: EvidenceSymbol[];
   dependents: EvidenceDependent[];
+  /** Laptop changes (optional; absent when nobody synced). */
+  changes?: EvidenceChange[];
 }
 export type ModelFindingKind = 'semantic_conflict' | 'structural_conflict' | 'harmless_overlap' | 'needs_clarification';
 export interface ModelFinding {

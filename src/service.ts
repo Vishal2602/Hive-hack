@@ -11,6 +11,7 @@ import { AnalysisService } from './intelligence/service.ts';
 import type { Analysis, Analyzer } from './intelligence/types.ts';
 import { OperationEngine, type Gate } from './ops/engine.ts';
 import type { ApplyResult, Proposal, SemanticOperation, OperationPreview } from './ops/types.ts';
+import { RemoteChanges, type RemoteState } from './remote/service.ts';
 import type { Store } from './store/sqlite.ts';
 
 export interface ServiceOptions extends Omit<CoordinatorOptions, 'detectors' | 'store'> {
@@ -28,7 +29,7 @@ export interface ServiceOptions extends Omit<CoordinatorOptions, 'detectors' | '
   analyzer?: Analyzer;
 }
 export interface GraphSummary { workspaceId: string; indexed: boolean; symbols: number; edges: number; files: number; lastSync: FileChanges | null }
-export interface ServiceSnapshot extends Snapshot { graph: GraphSummary; proposals: Proposal[]; claims: Claim[]; analysis: Analysis | null; model: { configured: boolean; model: string } }
+export interface ServiceSnapshot extends Snapshot { graph: GraphSummary; proposals: Proposal[]; claims: Claim[]; analysis: Analysis | null; model: { configured: boolean; model: string }; remote?: RemoteState }
 export interface HookCheck {
   file: string;
   pendingContracts: { id: string; version: number; title: string; missing: string[] }[];
@@ -51,6 +52,7 @@ export class HiveService {
   readonly claims: ClaimService;
   readonly analysis: AnalysisService;
   readonly analyzer: Analyzer;
+  readonly remote: RemoteChanges;
   readonly store: Store;
   private readonly graphs = new Map<string, GraphIndex>();
   private readonly lastSync = new Map<string, FileChanges>();
@@ -66,7 +68,8 @@ export class HiveService {
     this.store = options.store;
     this.tsconfig = options.tsconfig;
     this.clock = options.clock ?? Date.now;
-    this.coordinator = new Coordinator({ ...options, detectors: [intents => this.graphFindings(intents), () => this.directEditFindings(), () => this.claims.findings(this.graph())] });
+    this.coordinator = new Coordinator({ ...options, detectors: [intents => this.graphFindings(intents), () => this.directEditFindings(), () => this.claims.findings(this.graph()), () => this.remote.findings()] });
+    this.remote = new RemoteChanges({ store: this.store, coordinator: this.coordinator, graph: () => this.graph(), clock: this.clock });
     this.claims = new ClaimService(this.store, this.coordinator.repositoryId, this.clock);
     this.contracts = new ContractService({ store: this.store, coordinator: this.coordinator, graph: id => this.graph(id), sync: id => this.sync(id), clock: this.clock,
       verifyAllow: options.verifyAllow, requireAgreementForDependents: options.requireAgreementForDependents,
@@ -75,7 +78,7 @@ export class HiveService {
     this.engine = new OperationEngine({ store: this.store, coordinator: this.coordinator, graph: id => this.graph(id), sync: id => this.sync(id),
       gates: [this.contracts.gate(), this.claims.gate(id => this.graph(id)), ...(options.gates ?? [])], clock: this.clock, onFileWritten: options.onFileWritten });
     this.analyzer = options.analyzer ?? new MetaAnalyzer();
-    this.analysis = new AnalysisService({ store: this.store, coordinator: this.coordinator, graph: id => this.graph(id), sync: id => this.sync(id), findings: () => this.coordinator.findings(), analyzer: this.analyzer, clock: this.clock });
+    this.analysis = new AnalysisService({ store: this.store, coordinator: this.coordinator, graph: id => this.graph(id), sync: id => this.sync(id), findings: () => this.coordinator.findings(), analyzer: this.analyzer, changes: () => this.remote.evidence(), clock: this.clock });
   }
 
   analyze(sessionId: string, options: { force?: boolean } = {}): Promise<Analysis> { return this.analysis.analyze(sessionId, options); }
@@ -223,7 +226,7 @@ export class HiveService {
   private buildSnapshot(): ServiceSnapshot {
     const analyzer = this.analyzer as { configured?: boolean; model?: string };
     return { ...this.coordinator.snapshot(), graph: this.graphSummary(), proposals: this.engine.proposals(20), claims: this.claims.active(), analysis: this.analysis.latest(),
-      model: { configured: analyzer.configured ?? true, model: analyzer.model ?? 'custom' } };
+      model: { configured: analyzer.configured ?? true, model: analyzer.model ?? 'custom' }, remote: this.remote.state() };
   }
 
   // ---- snapshot cache ------------------------------------------------------------------------------
@@ -373,6 +376,8 @@ export interface HiveView {
   }[];
   events: ViewEvent[];
   analysis: { status: string; summary: string; model: string | null; latencyMs: number | null; findings: number; at: number } | null;
+  /** Laptop sync: which members have uncommitted changes Hive is checking (relative paths only). */
+  remote?: { baseCommit: string | null; members: { member: string; files: { path: string; deleted: boolean; updatedAt: number }[] }[] };
 }
 export interface ViewEvent { seq: number; at: number; type: string; detail: string }
 
@@ -446,5 +451,8 @@ export function sanitizeView(snapshot: ServiceSnapshot, extras: ViewExtras): Hiv
     events: sanitizeEvents(snapshot.events.slice(-100), roots),
     analysis: snapshot.analysis ? { status: snapshot.analysis.status, summary: text(snapshot.analysis.summary, 300), model: snapshot.analysis.model,
       latencyMs: snapshot.analysis.latencyMs, findings: snapshot.analysis.findings.length, at: snapshot.analysis.at } : null,
+    remote: { baseCommit: snapshot.remote?.baseCommit ? snapshot.remote.baseCommit.slice(0, 12) : null,
+      members: (snapshot.remote?.members ?? []).slice(0, 20).map(m => ({ member: cap(m.member, 80),
+        files: m.files.filter(f => relativeOnly([f.path]).length).slice(0, 50).map(f => ({ path: cap(f.path, 200), deleted: f.deleted, updatedAt: f.updatedAt })) })) },
   };
 }

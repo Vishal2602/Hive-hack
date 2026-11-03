@@ -1,9 +1,0 @@
-{
-  "_comment": "UNVERIFIED shape: Muse Code documents the event names but not this file's schema. If Muse warns about a malformed hook file, fix the shape here; the command itself works.",
-  "hooks": [
-    { "event": "SessionStart", "command": "node --disable-warning=ExperimentalWarning /app/src/hooks/hook.ts session-start --client muse" },
-    { "event": "PreLLMCall", "command": "node --disable-warning=ExperimentalWarning /app/src/hooks/hook.ts prompt --client muse" },
-    { "event": "PreToolUse", "command": "node --disable-warning=ExperimentalWarning /app/src/hooks/hook.ts pre-write --client muse" },
-    { "event": "PostToolUse", "command": "node --disable-warning=ExperimentalWarning /app/src/hooks/hook.ts post-write --client muse" }
-  ]
-}

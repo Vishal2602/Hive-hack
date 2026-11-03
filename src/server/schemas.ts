@@ -41,6 +41,12 @@ export const commandSchema = z.discriminatedUnion('action', [
   // Hook actions: authenticated by the shared token only; a hook process has no MCP session of its own.
   z.object({ action: z.literal('sync') }),
   z.object({ action: z.literal('hook_check'), file: text, clientSession: text.optional() }),
+  // Laptop sync (member or admin; the caller's member name owns the files). Content null = deleted.
+  z.object({ action: z.literal('remote_status') }),
+  z.object({ action: z.literal('remote_push'), baseCommit: z.string().max(80).nullable().optional(), replace: z.boolean().optional(),
+    files: z.array(z.object({ path: text, content: z.string().max(262144).nullable() })).max(200) }),
+  z.object({ action: z.literal('remote_check'), baseCommit: z.string().max(80).nullable().optional(),
+    path: text, content: z.string().max(262144).nullable() }),
   // Members and tokens. token_* are admin-only (src/server/auth.ts); the token value is returned once by token_create.
   z.object({ action: z.literal('member_list') }),
   z.object({ action: z.literal('token_create'), label: z.string().trim().min(1).max(80), member: z.string().trim().min(1).max(80),

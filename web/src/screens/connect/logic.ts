@@ -24,7 +24,7 @@ export const CONNECT_CLIENTS: readonly ConnectClient[] = [
 export const clientById = (id: ConnectClientId): ConnectClient => CONNECT_CLIENTS.find(c => c.id === id) ?? CONNECT_CLIENTS[0]!;
 
 /** One sentence the Connect flow shows next to the config, as the design spec requires. */
-export const REMOTE_SCOPE_NOTE = 'Remote agents coordinate intents and agreements through Hive, while code checks run against the service checkout, not the files on your machine.';
+export const REMOTE_SCOPE_NOTE = 'Hive type-checks the TypeScript files your agent edits on your machine together with your teammates\' uncommitted changes. Only changed .ts and .tsx files are sent to Hive, never secrets or node_modules.';
 
 /** Placeholder used when the person already holds their token (members cannot create new ones). */
 export const TOKEN_PLACEHOLDER = '<your Hive token>';
@@ -49,7 +49,8 @@ export function configSnippet(client: ConnectClientId, cloudLink: string, token:
   const url = mcpUrl(cloudLink);
   const header = `Authorization: Bearer ${token}`;
   if (client === 'claude-code') {
-    return `claude mcp add --transport http hive ${shellQuote(url)} --header ${shellQuote(header)}`;
+    // One-time setup served by Hive: installs the hook, the MCP server and the token for this project only.
+    return `curl -fsSL ${shellQuote(`${serviceBase(cloudLink)}/connect.mjs`)} -o hive-connect.mjs && node hive-connect.mjs ${shellQuote(token)} && rm hive-connect.mjs`;
   }
   if (client === 'muse-code') {
     const block = { mcp_servers: { hive: { transport: 'streamable_http', url, headers: { Authorization: `Bearer ${token}` } } } };

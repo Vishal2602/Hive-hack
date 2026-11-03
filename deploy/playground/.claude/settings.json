@@ -1,8 +1,0 @@
-{
-  "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning /app/src/hooks/hook.ts session-start --client claude", "timeout": 20 }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning /app/src/hooks/hook.ts prompt --client claude", "timeout": 20 }] }],
-    "PreToolUse": [{ "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning /app/src/hooks/hook.ts pre-write --client claude", "timeout": 20 }] }],
-    "PostToolUse": [{ "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning /app/src/hooks/hook.ts post-write --client claude", "timeout": 60 }] }]
-  }
-}

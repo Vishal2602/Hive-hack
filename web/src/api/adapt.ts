@@ -60,6 +60,7 @@ export function viewToSnapshot(view: ViewResponse, events: EventItem[] = [], now
       findings: [], model: view.analysis.model, latencyMs: view.analysis.latencyMs, usage: null, attempts: 0, dropped: [], inputHash: '', revision: view.revision,
       error: null, evidenceRefs: { symbols: [], files: [], sessions: [], candidates: 0 }, at: view.analysis.at } : null,
     model: view.model,
+    ...(view.remote ? { remote: { baseCommit: view.remote.baseCommit, members: view.remote.members.map(m => ({ member: m.member, baseCommit: null, files: m.files })) } } : {}),
     cacheAgeMs: view.cacheAgeMs,
   };
 }

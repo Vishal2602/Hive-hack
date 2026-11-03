@@ -43,8 +43,8 @@ export function whereToPaste(client: ConnectClientId, name: string | null): stri
   switch (client) {
     case 'claude-code':
       return self
-        ? 'Run this once in a terminal, inside the repository folder you work in. Claude Code picks Hive up on its next start.'
-        : `${name} runs this once in a terminal, inside the repository folder they work in. Claude Code picks Hive up on its next start.`;
+        ? 'Run this once in a terminal, inside the repository folder you work in. It installs the Hive hook and MCP server for this project and keeps the token out of git. Restart Claude Code afterwards.'
+        : `${name} runs this once in a terminal, inside the repository folder they work in. It installs the Hive hook and MCP server for that project and keeps the token out of git. Then they restart Claude Code.`;
     case 'muse-code':
       return self
         ? 'Add this block to the MCP servers section of your Muse Code configuration, then reconnect.'

@@ -18,21 +18,21 @@ const TOKEN = 'hive_mem_AbC123xyz';
 test('snippets use the real /mcp endpoint and the exact token for each client', () => {
   assert.equal(mcpUrl('https://hive.example.com/'), 'https://hive.example.com/mcp');
   assert.equal(configSnippet('claude-code', 'https://hive.example.com', TOKEN),
-    `claude mcp add --transport http hive 'https://hive.example.com/mcp' --header 'Authorization: Bearer ${TOKEN}'`);
+    `curl -fsSL 'https://hive.example.com/connect.mjs' -o hive-connect.mjs && node hive-connect.mjs '${TOKEN}' && rm hive-connect.mjs`);
 
   const muse = JSON.parse(configSnippet('muse-code', 'https://hive.example.com//', TOKEN)) as Record<string, unknown>;
   assert.deepEqual(muse, { mcp_servers: { hive: { transport: 'streamable_http', url: 'https://hive.example.com/mcp', headers: { Authorization: `Bearer ${TOKEN}` } } } });
 
   assert.equal(configSnippet('mcp', 'http://127.0.0.1:4318', TOKEN), `URL: http://127.0.0.1:4318/mcp\nAuthorization: Bearer ${TOKEN}`);
-  assert.match(REMOTE_SCOPE_NOTE, /intents and agreements/);
-  assert.match(REMOTE_SCOPE_NOTE, /service checkout/);
+  assert.match(REMOTE_SCOPE_NOTE, /on your machine/);
+  assert.match(REMOTE_SCOPE_NOTE, /never secrets/);
 });
 
 test('shell quoting keeps hostile values inert in the Claude Code command', () => {
   assert.equal(shellQuote(`a'b`), `'a'\\''b'`);
   const snippet = configSnippet('claude-code', `https://x.dev/$(rm -rf ~)`, `tok'; echo pwned`);
-  assert.ok(snippet.includes(`'https://x.dev/$(rm -rf ~)/mcp'`), 'command substitution stays inside single quotes');
-  assert.ok(snippet.includes(`'Authorization: Bearer tok'\\''; echo pwned'`), 'a quote in the token cannot end the argument');
+  assert.ok(snippet.includes(`'https://x.dev/$(rm -rf ~)/connect.mjs'`), 'command substitution stays inside single quotes');
+  assert.ok(snippet.includes(`'tok'\\''; echo pwned'`), 'a quote in the token cannot end the argument');
 });
 
 test('invite links put the token after # under the app base path', () => {
