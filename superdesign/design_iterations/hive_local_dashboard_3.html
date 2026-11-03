@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hive · Direction C · Timeline-first narrative</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --bg:#1b1917; --card:#24211e; --card2:#2d2926; --line:#3a3531; --text:#f1ece4; --muted:#a79f93; --amber:#e9ab4f; --red:#ea7266; --green:#6cc287; --blue:#8fa7c4; }
+  body { background:var(--bg); color:var(--text); font-family: ui-sans-serif, -apple-system, "Inter", "Segoe UI", sans-serif; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; }
+  .lane { background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  .tag { display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px; font-size:12px; line-height:20px; border:1px solid var(--line); }
+  .feed { position:relative; }
+  .feed::before { content:""; position:absolute; left:19px; top:0; bottom:0; width:2px; background:var(--line); }
+  .ev { position:relative; padding-left:56px; }
+  .ev .k { position:absolute; left:8px; top:14px; width:24px; height:24px; border-radius:999px; background:var(--card2); border:2px solid var(--line); }
+  .ev.warn .k { border-color:var(--red); } .ev.amb .k { border-color:var(--amber); } .ev.ok .k { border-color:var(--green); background:var(--green); }
+  .seg { display:grid; grid-template-columns:repeat(6,1fr); gap:3px; }
+  .seg i { height:5px; border-radius:999px; background:var(--line); display:block; }
+  .seg i.on { background:var(--amber); } .seg i.ok { background:var(--green); }
+  pre { white-space:pre-wrap; word-break:break-word; }
+</style>
+</head>
+<body class="min-h-screen">
+  <!-- Sticky agent lanes -->
+  <header class="sticky top-0 z-10 border-b" style="background:rgba(27,25,23,.96);border-color:var(--line);backdrop-filter:blur(6px)">
+    <div class="mx-auto max-w-4xl px-4 py-3 space-y-3">
+      <div class="flex flex-wrap items-center gap-3"><span class="font-semibold tracking-wide" style="color:var(--amber)">HIVE</span><span class="text-sm" style="color:var(--muted)">hive-playground · rev 4</span><span class="tag"><span class="w-2 h-2 rounded-full inline-block" style="background:var(--green)"></span>online · 1 s</span><span class="tag" style="border-color:var(--red);color:var(--red)">1 conflict</span><span class="tag">Muse Spark ready</span><button class="ml-auto h-10 px-4 rounded-lg text-sm" style="background:var(--card2);border:1px solid var(--line)">+ Connect agent</button></div>
+      <div class="grid grid-cols-3 gap-2">
+        <div class="lane p-3"><div class="flex justify-between text-sm"><span class="font-medium">pricing</span><span class="text-xs" style="color:var(--amber)">pending</span></div><div class="seg mt-2"><i class="ok"></i><i class="ok"></i><i class="ok"></i><i class="on"></i><i></i><i></i></div></div>
+        <div class="lane p-3"><div class="flex justify-between text-sm"><span class="font-medium">invoice</span><span class="text-xs" style="color:var(--amber)">pending</span></div><div class="seg mt-2"><i class="ok"></i><i class="ok"></i><i class="ok"></i><i class="on"></i><i></i><i></i></div></div>
+        <div class="lane p-3"><div class="flex justify-between text-sm"><span class="font-medium">ui</span><span class="text-xs" style="color:var(--green)">free</span></div><div class="seg mt-2"><i class="ok"></i><i class="ok"></i><i class="on"></i><i></i><i></i><i></i></div></div>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-4xl px-4 py-6">
+    <!-- Connect panel, collapsible -->
+    <details class="card p-4 mb-6" open>
+      <summary class="cursor-pointer font-medium">Connect your agents <span class="text-sm font-normal" style="color:var(--muted)">· 2 of 3 steps done</span></summary>
+      <div class="grid md:grid-cols-3 gap-3 mt-4 text-sm">
+        <div class="rounded-lg p-3" style="background:var(--card2)"><div style="color:var(--green)">✓ Daemon running</div><div class="text-xs mt-1" style="color:var(--muted)">127.0.0.1:4317 · token stored in this tab</div></div>
+        <div class="rounded-lg p-3" style="background:var(--card2)"><div style="color:var(--green)">✓ Claude Code connected</div><button class="mt-2 h-10 w-full rounded-lg text-xs" style="border:1px solid var(--line)">Copy Muse Code settings</button></div>
+        <div class="rounded-lg p-3" style="background:var(--card2)"><div style="color:var(--amber)">○ Waiting for hive_register</div><div class="text-xs mt-1" style="color:var(--muted)">Ticks automatically when the first agent registers.</div></div>
+      </div>
+    </details>
+
+    <!-- Story feed -->
+    <h2 class="text-xs uppercase tracking-wider mb-3" style="color:var(--muted)">What happened, in order</h2>
+    <div class="feed space-y-4">
+      <article class="ev"><span class="k"></span><div class="card p-4"><div class="text-sm">pricing agent and invoice agent registered and declared their plans.</div><div class="text-xs mt-1" style="color:var(--muted)">18:40 · intents v1</div></div></article>
+
+      <article class="ev warn"><span class="k"></span><div class="card p-5 space-y-3" style="border-color:#6a3530">
+        <div class="flex flex-wrap items-center gap-2"><span class="tag" style="border-color:var(--red);color:var(--red)">incompatible assumption</span><span class="tag">compiler-backed</span><span class="text-xs" style="color:var(--muted)">18:41</span></div>
+        <h3 class="text-xl font-semibold leading-7">getPrice: cents or dollars?</h3>
+        <p class="text-sm leading-6" style="color:var(--muted)">Pricing plans integer cents; invoice formats dollars. invoice.ts:11 calls getPrice, so the invoice would print $1999.00.</p>
+        <div class="grid md:grid-cols-2 gap-3">
+          <ul class="mono text-xs space-y-1 rounded-lg p-3" style="background:var(--card2)"><li>getPrice:unit = cents (pricing)</li><li>getPrice:unit = dollars (invoice)</li><li>invoice.ts#lineTotal → getPrice</li></ul>
+          <div class="rounded-lg p-3" style="background:var(--card2)"><div class="text-xs mb-1" style="color:var(--muted)">Muse Spark suggests</div><pre class="mono text-xs">export declare function getPrice(sku: string, unit: 'cents' | 'dollars'): number;</pre></div>
+        </div>
+      </div></article>
+
+      <article class="ev amb"><span class="k"></span><div class="card p-5 space-y-3">
+        <div class="flex flex-wrap items-center gap-2"><span class="tag" style="border-color:var(--amber);color:var(--amber)">Ghost Contract v1</span><span class="text-xs" style="color:var(--muted)">18:42 · proposed by pricing agent</span></div>
+        <div class="font-medium">Explicit unit parameter on getPrice</div>
+        <div class="grid grid-cols-4 gap-1 text-[11px] text-center"><span class="rounded py-1" style="background:var(--amber);color:#1b1917">proposed</span><span class="rounded py-1" style="background:var(--amber);color:#1b1917">accepted</span><span class="rounded py-1" style="background:var(--card2);color:var(--muted)">implemented</span><span class="rounded py-1" style="background:var(--card2);color:var(--muted)">verified</span></div>
+        <div class="flex flex-wrap gap-2 text-xs"><span class="tag" style="color:var(--green)">pricing signed v1</span><span class="tag" style="color:var(--green)">invoice signed v1</span></div>
+        <div class="text-xs" style="color:var(--muted)">Consumer can build against this promise now; the real code still returns dollars.</div>
+      </div></article>
+
+      <article class="ev"><span class="k"></span><div class="card p-4"><div class="text-sm">Pre-write hook paused an edit to pricing.ts until the contract was accepted. Released at 18:44.</div><div class="text-xs mt-1" style="color:var(--muted)">18:43 · ask</div></div></article>
+
+      <article class="ev ok"><span class="k"></span><div class="card p-4 space-y-1"><div class="text-sm">change_signature applied by pricing agent · revision 3 · 2 files</div><pre class="mono text-xs rounded-lg p-3 mt-2" style="background:var(--card2)">- export function getPrice(sku: string): number
++ export function getPrice(sku: string, unit: 'cents' | 'dollars'): number</pre><div class="text-xs" style="color:var(--muted)">contract → implemented (signature matches)</div></div></article>
+
+      <article class="ev warn"><span class="k"></span><div class="card p-4"><div class="text-sm">Verification: <span class="mono">npm test</span> exit 1 · <span style="color:var(--red)">19.99 !== 1999</span></div><div class="text-xs mt-1" style="color:var(--muted)">18:46 · body still returns dollars · still “implemented”, not verified</div></div></article>
+
+      <article class="ev ok"><span class="k"></span><div class="card p-4" style="border-color:#2f5a3b"><div class="text-sm">Verification: <span class="mono">npm test</span> exit 0 · revision 4 · <span style="color:var(--green)">contract verified</span></div><div class="text-xs mt-1 mono" style="color:var(--muted)">src/pricing.ts 7255…  src/invoice.ts 4bd2…</div></div></article>
+    </div>
+
+    <!-- States -->
+    <h2 class="text-xs uppercase tracking-wider mt-10 mb-3" style="color:var(--muted)">States</h2>
+    <div class="grid md:grid-cols-4 gap-3 text-sm">
+      <div class="card p-4"><div class="font-medium">Empty</div><div class="text-xs mt-1" style="color:var(--muted)">The feed starts when the first agent registers.</div></div>
+      <div class="card p-4" style="border-color:var(--red)"><div class="font-medium" style="color:var(--red)">Offline</div><div class="text-xs mt-1" style="color:var(--muted)">Daemon unreachable. Feed frozen and dimmed.</div></div>
+      <div class="card p-4" style="border-color:var(--amber)"><div class="font-medium" style="color:var(--amber)">Stale</div><div class="text-xs mt-1" style="color:var(--muted)">Last poll 14 s ago.</div></div>
+      <div class="card p-4"><div class="font-medium">Model unavailable</div><div class="text-xs mt-1" style="color:var(--muted)">Spark card shows “unavailable: timeout”, never “no conflict”.</div></div>
+    </div>
+  </main>
+</body>
+</html>

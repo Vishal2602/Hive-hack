@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hive dashboard · design directions</title>
+<style>
+  body{margin:0;padding:24px;font-family:ui-sans-serif,-apple-system,"Inter","Segoe UI",sans-serif;background:#f4f3ef;color:#1c1b19}
+  h1{font-size:28px;margin:0 0 4px}p{margin:0 0 24px;color:#6b6962}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:24px;max-width:1500px}
+  .card{background:#fff;border:1px solid #e4e1d9;border-radius:14px;overflow:hidden}
+  .head{padding:14px 16px;border-bottom:1px solid #e4e1d9;display:flex;justify-content:space-between;align-items:center}
+  .head b{font-size:15px}.head span{font-size:12px;color:#6b6962}
+  .prev{height:360px;overflow:hidden;position:relative;background:#111}
+  .prev iframe{width:200%;height:200%;border:0;transform:scale(.5);transform-origin:top left}
+  .acts{padding:12px 16px;display:flex;gap:8px}
+  a.btn{display:inline-block;padding:8px 14px;border-radius:8px;background:#1c1b19;color:#fff;text-decoration:none;font-size:13px}
+  .note{padding:0 16px 14px;font-size:13px;color:#6b6962;line-height:20px}
+</style></head><body>
+<h1>Hive dashboard · three design directions</h1>
+<p>Mockups with mock data. Pick one to take into implementation.</p>
+<div class="grid">
+  <div class="card"><div class="head"><b>A · Mission control</b><span>dense dark ops board</span></div><div class="prev"><iframe src="./design_iterations/hive_local_dashboard_1.html" loading="lazy"></iframe></div><div class="acts"><a class="btn" href="./design_iterations/hive_local_dashboard_1.html" target="_blank">View full</a></div><div class="note">Everything on one screen: agent lanes left, hero conflict + timeline center, contracts right. For the developer who runs several agents and wants the whole picture at a glance.</div></div>
+  <div class="card"><div class="head"><b>B · Calm light workspace</b><span>airy, large type</span></div><div class="prev"><iframe src="./design_iterations/hive_local_dashboard_2.html" loading="lazy"></iframe></div><div class="acts"><a class="btn" href="./design_iterations/hive_local_dashboard_2.html" target="_blank">View full</a></div><div class="note">Onboarding wizard on top, one conflict story in the middle, agreement below. For a teammate or judge who has never seen Hive and needs to understand it in 30 seconds.</div></div>
+  <div class="card"><div class="head"><b>C · Timeline-first narrative</b><span>story feed, warm dark</span></div><div class="prev"><iframe src="./design_iterations/hive_local_dashboard_3.html" loading="lazy"></iframe></div><div class="acts"><a class="btn" href="./design_iterations/hive_local_dashboard_3.html" target="_blank">View full</a></div><div class="note">Sticky agent lanes on top, then a chronological feed where findings, contracts, edits and test runs appear as cards in order. For the demo video: the screen tells the story by itself.</div></div>
+</div>
+</body></html>

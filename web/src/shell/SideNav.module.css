@@ -1,0 +1,107 @@
+.nav {
+  position: sticky;
+  top: calc(var(--header-height) + var(--space-6));
+  align-self: start;
+  z-index: 5;
+}
+
+.stage {
+  --rail-scale: 1;
+  position: relative;
+  block-size: 35.5rem; /* overridden inline from the section count */
+  inline-size: 15rem;
+}
+
+/* The vendored element spreads ticks over a fixed 35.5rem track. Compress it to the nav's pitch:
+   the host, rail hit area, tick and card offsets all scale by --rail-scale, so pointer mapping
+   (proportional to the rail's rendered height) still lands on the right tick. Ticks keep their size. */
+.rail {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 22rem;
+  block-size: calc(35.5rem * var(--rail-scale));
+  z-index: 2;
+}
+
+.rail::part(rail) {
+  inline-size: 2.75rem;
+  block-size: calc(35.5rem * var(--rail-scale));
+}
+
+.rail::part(tick) {
+  inset-inline-start: 0.25rem;
+  transform: translate3d(0, calc(var(--tick-y) * var(--rail-scale)), 0) scaleX(var(--tick-scale));
+}
+
+.rail::part(card) {
+  inset-inline-start: 3rem;
+  transform: translate3d(0, calc(var(--card-y) * var(--rail-scale)), 0);
+}
+
+.rail::part(rail):focus-visible::after {
+  inset-inline-start: -0.25rem;
+  inline-size: 2.75rem;
+  inset-block: 0.25rem;
+}
+
+.links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.links li {
+  position: absolute;
+  inset-inline-start: 3rem;
+  inset-inline-end: 0;
+  /* Centre the title's first line (padding 0.25rem + half of 1.5rem) on the 3px tick. */
+  transform: translateY(calc(-1rem + 0.09375rem));
+}
+
+.link {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-1) var(--space-2);
+  margin-inline-start: calc(var(--space-2) * -1);
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .link:hover { color: var(--foreground); background: var(--surface-muted); }
+}
+
+.title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.5rem;
+}
+
+.hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.active { color: var(--foreground); }
+.active .title { color: var(--foreground); }
+.active .title::before {
+  content: "";
+  display: inline-block;
+  inline-size: 6px;
+  block-size: 6px;
+  margin-inline-end: var(--space-2);
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link { transition: none; }
+}

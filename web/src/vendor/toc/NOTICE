@@ -1,0 +1,4 @@
+table-of-content-model.js and table-of-content.js are vendored unmodified from
+https://github.com/zanwei/table-of-content-component (branch main, commit 584b4bec9abfa25db738e53cb061677366a2f38b,
+fetched 2026-11-02). MIT License, Copyright (c) 2026 Table of Content contributors.
+See LICENSE and UPSTREAM-NOTICE in this folder. The .d.ts files here are local typings.

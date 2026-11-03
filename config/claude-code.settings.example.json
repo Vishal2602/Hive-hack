@@ -1,0 +1,9 @@
+{
+  "$comment": "Merge into <project>/.claude/settings.json (or settings.local.json). Replace /ABSOLUTE/PATH/Hive. HIVE_TOKEN comes from Hive's .env via --env-file. Verified hook schema: Claude Code 2.x (stdin JSON with tool_input.file_path; stdout JSON hookSpecificOutput.additionalContext / permissionDecision).",
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning --env-file=/ABSOLUTE/PATH/Hive/.env /ABSOLUTE/PATH/Hive/src/hooks/hook.ts session-start --client claude", "timeout": 20 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning --env-file=/ABSOLUTE/PATH/Hive/.env /ABSOLUTE/PATH/Hive/src/hooks/hook.ts prompt --client claude", "timeout": 20 }] }],
+    "PreToolUse": [{ "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning --env-file=/ABSOLUTE/PATH/Hive/.env /ABSOLUTE/PATH/Hive/src/hooks/hook.ts pre-write --client claude", "timeout": 20 }] }],
+    "PostToolUse": [{ "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning --env-file=/ABSOLUTE/PATH/Hive/.env /ABSOLUTE/PATH/Hive/src/hooks/hook.ts post-write --client claude", "timeout": 60 }] }]
+  }
+}

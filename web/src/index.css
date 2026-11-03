@@ -1,0 +1,55 @@
+/* Global base on top of Arc foundation tokens. Semantic tokens only. */
+:root {
+  /* System UI stack: no web fonts are loaded, so Arc's font tokens resolve here. */
+  --font-inter: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-geist: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --header-height: 4rem;
+  --content-max: 72rem;
+  --gutter: var(--space-8);
+}
+
+@media (max-width: 640px) {
+  :root { --gutter: var(--space-4); }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  letter-spacing: var(--tracking-body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+p { margin: 0; }
+
+a { color: inherit; }
+
+code, kbd, pre, samp, .mono { font-family: var(--font-mono); font-size: 0.875em; letter-spacing: 0; }
+
+pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}

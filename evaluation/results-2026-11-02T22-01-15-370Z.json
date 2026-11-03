@@ -1,0 +1,701 @@
+{
+  "meta": {
+    "label": "SCRIPTED EVALUATION — no live coding agents; file edits performed by demo/evaluate.ts on temp copies of fixtures/billing",
+    "startedAt": "2026-11-02T22:01:15.370Z",
+    "finishedAt": "2026-11-02T22:01:21.232Z",
+    "repeats": 1,
+    "node": "v22.22.3",
+    "platform": "darwin-arm64",
+    "repoRevision": "n/a (not a git repository)",
+    "model": {
+      "configured": false,
+      "model": "muse-spark-1.3 (default)",
+      "note": "model analysis only runs in the unit-mismatch hive scenario and only when MODEL_API_KEY is set"
+    },
+    "latencyDefinition": "wall-clock ms for the whole scenario (temp copy, indexing, checks, test subprocesses, cleanup)",
+    "costDefinition": "model tokens from analysis.usage when a real call ran; dollars are never estimated"
+  },
+  "rows": [
+    {
+      "scenario": "Unit mismatch (cents vs dollars)",
+      "mode": "hive",
+      "run": 1,
+      "latencyMs": 2918,
+      "latency": "2918 ms",
+      "error": null,
+      "detected": "yes (assumption_mismatch + compiler dependent_write, before any edit)",
+      "falseAlert": "no (UI agent: 0 warnings)",
+      "integration": "yes (node --test tests/pricing.test.ts exit 0; contract verified; 0 new type errors)",
+      "cost": "0 (no model call: unavailable)",
+      "expected": true,
+      "expectation": "conflict detected before edits; gate rejects pre-agreement change; first verify fails (19.99 !== 1999); verified after body fix; UI agent never warned",
+      "inputs": {
+        "intents": {
+          "pricing": {
+            "task": "Make getPrice explicit about units (cents)",
+            "files": [
+              "src/pricing.ts"
+            ],
+            "symbols": [
+              "src/pricing.ts#getPrice:function"
+            ],
+            "assumptions": [
+              {
+                "key": "src/pricing.ts#getPrice:unit",
+                "value": "cents"
+              }
+            ]
+          },
+          "invoice": {
+            "task": "Export invoices",
+            "files": [
+              "src/invoice.ts"
+            ],
+            "symbols": [
+              "src/invoice.ts#invoiceTotal:function"
+            ],
+            "assumptions": [
+              {
+                "key": "src/pricing.ts#getPrice:unit",
+                "value": "dollars"
+              }
+            ]
+          },
+          "ui": {
+            "task": "Change button label",
+            "files": [
+              "src/button.ts"
+            ],
+            "symbols": [
+              "src/button.ts#buttonLabel:variable"
+            ],
+            "assumptions": []
+          }
+        },
+        "declaration": "export declare function getPrice(unit: 'cents' | 'dollars'): number;",
+        "operation": {
+          "kind": "change_signature",
+          "symbol": "src/pricing.ts#getPrice:function",
+          "declaration": "getPrice(unit: 'cents' | 'dollars'): number"
+        },
+        "verifyCommand": "node --test tests/pricing.test.ts",
+        "edits": {
+          "src/invoice.ts": "import { getPrice } from './pricing.ts';\nimport { applyTax } from './tax.ts';\nexport function invoiceTotal(): string { return `$${(getPrice('cents') / 100).toFixed(2)}`; }\nexport function invoiceWithTax(): number { return applyTax(getPrice('dollars'), 0.2, 'EU'); }\n",
+          "src/pricing.ts": "/** Unit is explicit. 'cents' returns integer USD cents. */\nexport function getPrice(unit: 'cents' | 'dollars'): number { return unit === 'cents' ? 1999 : 19.99; }\n",
+          "src/button.ts": "export const buttonLabel = 'Download invoice';\n"
+        }
+      },
+      "evidence": {
+        "findingsBeforeEdits": [
+          {
+            "kind": "assumption_mismatch",
+            "severity": "warning",
+            "source": "deterministic",
+            "sessions": [
+              "5f22f057-ee8a-4502-a202-6c1ecd660c1d",
+              "8d00127c-538b-4411-8aa4-4119d763ba3c"
+            ],
+            "evidence": "src/pricing.ts#getPrice:unit: 5f22f057-ee8a-4502-a202-6c1ecd660c1d expects cents; 8d00127c-538b-4411-8aa4-4119d763ba3c expects dollars"
+          },
+          {
+            "kind": "dependent_write",
+            "severity": "warning",
+            "source": "compiler",
+            "sessions": [
+              "5f22f057-ee8a-4502-a202-6c1ecd660c1d",
+              "8d00127c-538b-4411-8aa4-4119d763ba3c"
+            ],
+            "evidence": "5f22f057-ee8a-4502-a202-6c1ecd660c1d declares work on src/pricing.ts#getPrice:function (getPrice(): number); 8d00127c-538b-4411-8aa4-4119d763ba3c's scope depends on it: src/invoice.ts (src/invoice.ts:1); src/invoice.ts#invoiceTotal:function (src/invoice.ts:3); src/invoice.ts#invoiceWithTax:function (src/invoice.ts:4)"
+          }
+        ],
+        "findingsAfterEdits": [
+          {
+            "kind": "assumption_mismatch",
+            "severity": "warning",
+            "source": "deterministic",
+            "sessions": [
+              "5f22f057-ee8a-4502-a202-6c1ecd660c1d",
+              "8d00127c-538b-4411-8aa4-4119d763ba3c"
+            ],
+            "evidence": "src/pricing.ts#getPrice:unit: 5f22f057-ee8a-4502-a202-6c1ecd660c1d expects cents; 8d00127c-538b-4411-8aa4-4119d763ba3c expects dollars"
+          },
+          {
+            "kind": "dependent_write",
+            "severity": "warning",
+            "source": "compiler",
+            "sessions": [
+              "5f22f057-ee8a-4502-a202-6c1ecd660c1d",
+              "8d00127c-538b-4411-8aa4-4119d763ba3c"
+            ],
+            "evidence": "5f22f057-ee8a-4502-a202-6c1ecd660c1d declares work on src/pricing.ts#getPrice:function (getPrice(unit: 'cents' | 'dollars'): number); 8d00127c-538b-4411-8aa4-4119d763ba3c's scope depends on it: src/invoice.ts (src/invoice.ts:1); src/invoice.ts#invoiceTotal:function (src/invoice.ts:3); src/invoice.ts#invoiceWithTax:function (src/invoice.ts:4)"
+          },
+          {
+            "kind": "direct_edit",
+            "severity": "info",
+            "source": "deterministic",
+            "sessions": [
+              "8d00127c-538b-4411-8aa4-4119d763ba3c"
+            ],
+            "evidence": "Files changed outside Hive operations: src/invoice.ts (detected 2026-11-02T22:01:16.132Z, revision 2)"
+          },
+          {
+            "kind": "direct_edit",
+            "severity": "info",
+            "source": "deterministic",
+            "sessions": [
+              "5f22f057-ee8a-4502-a202-6c1ecd660c1d",
+              "f6a81d8a-10b4-40d4-b0f1-e8fb804fbfa5"
+            ],
+            "evidence": "Files changed outside Hive operations: src/button.ts, src/pricing.ts (detected 2026-11-02T22:01:17.869Z, revision 4)"
+          }
+        ],
+        "analysis": {
+          "status": "unavailable",
+          "model": null,
+          "error": "MODEL_API_KEY is not set; model analysis is unavailable (this is not a \"no conflict\" result)",
+          "usage": null,
+          "attempts": 0,
+          "findings": 0
+        },
+        "overlayCheckAtProposal": {
+          "ok": false,
+          "diagnostics": [
+            "src/invoice.ts:3 TS2554 Expected 1 arguments, but got 0.",
+            "src/invoice.ts:4 TS2554 Expected 1 arguments, but got 0."
+          ],
+          "at": 1793656876070
+        },
+        "consumerCheck": {
+          "overlayOk": true,
+          "realOk": false,
+          "implementation": "expected getPrice(unit: 'cents' | 'dollars'): number, found getPrice(): number"
+        },
+        "gateBeforeAcceptance": {
+          "status": "rejected",
+          "rejections": [
+            "Contract \"Explicit unit parameter on getPrice\" (c7131b4d-7c57-4d26-a0b9-f0460e2dd501 v1) for src/pricing.ts#getPrice:function is proposed but not yet accepted by: 5f22f057-ee8a-4502-a202-6c1ecd660c1d, 8d00127c-538b-4411-8aa4-4119d763ba3c. Acknowledge or reject it first."
+          ]
+        },
+        "statusAfterAcknowledgements": "accepted",
+        "apply": {
+          "status": "applied",
+          "revision": 3,
+          "changedFiles": [
+            "src/pricing.ts"
+          ]
+        },
+        "diff": "--- a/src/pricing.ts\n+++ b/src/pricing.ts\n@@\n /** Returns US dollars. A unit change can break callers without a type error. */\n-export function getPrice(): number { return 19.99; }\n+export function getPrice(unit: 'cents' | 'dollars'): number { return 19.99; }\n \n",
+        "statusAfterApply": "implemented",
+        "firstVerify": {
+          "command": "node --test tests/pricing.test.ts",
+          "exitCode": 1,
+          "passed": false,
+          "revision": 3,
+          "assertion": "19.99 !== 1999 (not ok 1 - getPrice returns integer cents when asked for cents)",
+          "output": "t: getPrice returns integer cents when asked for cents\nnot ok 1 - getPrice returns integer cents when asked for cents\n  ---\n  duration_ms: 0.50875\n  type: 'test'\n  location: '/private/var/folders/5l/07jps7913j9g9qv_s1q5c0940000gn/T/hive-eval-X5aSmh/tests/pricing.test.ts:8:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Expected values to be strictly equal:\n    \n    19.99 !== 1999\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: 1999\n  actual: 19.99\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///private/var/folders/5l/07jps7913j9g9qv_s1q5c0940000gn/T/hive-eval-X5aSmh/tests/pricing.test.ts:9:10)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.start (node:internal/test_runner/test:944:17)\n    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)\n  ...\n# Subtest: invoice keeps rendering dollars\nnot ok 2 - invoice keeps rendering dollars\n  ---\n  duration_ms: 0.138875\n  type: 'test'\n  location: '/private/var/folders/5l/07jps7913j9g9qv_s1q5c0940000gn/T/hive-eval-X5aSmh/tests/pricing.test.ts:11:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Expected values to be strictly equal:\n    \n    '$0.20' !== '$19.99'\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: '$19.99'\n  actual: '$0.20'\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///private/var/folders/5l/07jps7913j9g9qv_s1q5c0940000gn/T/hive-eval-X5aSmh/tests/pricing.test.ts:12:10)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.processPendingSubtests (node:internal/test_runner/test:744:18)\n    Test.postRun (node:internal/test_runner/test:1173:19)\n    Test.run (node:internal/test_runner/test:1101:12)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 0\n# fail 2\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 47.995667\n"
+        },
+        "secondVerify": {
+          "command": "node --test tests/pricing.test.ts",
+          "exitCode": 0,
+          "passed": true,
+          "revision": 4,
+          "sourceHashes": {
+            "src/pricing.ts": "72554883c5af7795589398d005d25ee41cc066108840f1d2e3ffbe93c988559a",
+            "src/invoice.ts": "4bd2e7aa10dc16bf99e3115e665830495aa3d611d7ba28aa2c6d2d83b7fda93f"
+          },
+          "output": "TAP version 13\n# Subtest: getPrice returns integer cents when asked for cents\nok 1 - getPrice returns integer cents when asked for cents\n  ---\n  duration_ms: 0.276\n  type: 'test'\n  ...\n# Subtest: invoice keeps rendering dollars\nok 2 - invoice keeps rendering dollars\n  ---\n  duration_ms: 0.046459\n  type: 'test'\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 48.191042\n"
+        },
+        "finalContractStatus": "verified",
+        "finalRevision": 4,
+        "newTypeDiagnostics": []
+      }
+    },
+    {
+      "scenario": "Unit mismatch (cents vs dollars)",
+      "mode": "no-hive",
+      "run": 1,
+      "latencyMs": 490,
+      "latency": "490 ms",
+      "error": null,
+      "detected": "no (control: no coordination layer; nothing ran before integration)",
+      "falseAlert": "n/a (no detector in this mode)",
+      "integration": "no (2 new type errors in src/invoice.ts; node --test tests/pricing.test.ts exit 0)",
+      "cost": "0 (no model call)",
+      "expected": true,
+      "expectation": "consumer still calls getPrice() after the producer requires a unit: type errors in invoice.ts at integration time",
+      "inputs": {
+        "edits": {
+          "src/pricing.ts": "/** Unit is explicit. 'cents' returns integer USD cents. */\nexport function getPrice(unit: 'cents' | 'dollars'): number { return unit === 'cents' ? 1999 : 19.99; }\n",
+          "src/button.ts": "export const buttonLabel = 'Download invoice';\n"
+        },
+        "untouched": [
+          "src/invoice.ts"
+        ],
+        "verifyCommand": "node --test tests/pricing.test.ts",
+        "typeCheck": "service.graph().openProject().getPreEmitDiagnostics()"
+      },
+      "evidence": {
+        "newTypeDiagnostics": [
+          "src/invoice.ts:3 TS2554 Expected 1 arguments, but got 0.",
+          "src/invoice.ts:4 TS2554 Expected 1 arguments, but got 0."
+        ],
+        "test": {
+          "command": "node --test tests/pricing.test.ts",
+          "exitCode": 0,
+          "assertion": null,
+          "output": "TAP version 13\n# Subtest: getPrice returns integer cents when asked for cents\nok 1 - getPrice returns integer cents when asked for cents\n  ---\n  duration_ms: 0.278125\n  type: 'test'\n  ...\n# Subtest: invoice keeps rendering dollars\nok 2 - invoice keeps rendering dollars\n  ---\n  duration_ms: 0.049375\n  type: 'test'\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 45.792041\n"
+        },
+        "note": "Node strips types at runtime, so getPrice() with no unit falls through to dollars and the behavior test can still pass; the breakage is a compile-time error."
+      }
+    },
+    {
+      "scenario": "Unit mismatch, signature unchanged",
+      "mode": "no-hive",
+      "run": 1,
+      "latencyMs": 475,
+      "latency": "475 ms",
+      "error": null,
+      "detected": "no (control: no coordination layer; type-check sees nothing)",
+      "falseAlert": "n/a (no detector in this mode)",
+      "integration": "no (0 new type errors; node --test tests/pricing.test.ts exit 1: actual: '$1999.00', expected: '$19.99' (not ok 2 - invoice keeps rendering dollars))",
+      "cost": "0 (no model call)",
+      "expected": true,
+      "expectation": "type-check passes but the invoice prints $1999.00: only the behavior test catches it",
+      "inputs": {
+        "edits": {
+          "src/pricing.ts": "/** Returns integer USD cents. */\nexport function getPrice(): number { return 1999; }\n"
+        },
+        "verifyCommand": "node --test tests/pricing.test.ts"
+      },
+      "evidence": {
+        "newTypeDiagnostics": [],
+        "test": {
+          "command": "node --test tests/pricing.test.ts",
+          "exitCode": 1,
+          "assertion": "actual: '$1999.00', expected: '$19.99' (not ok 2 - invoice keeps rendering dollars)",
+          "output": "TAP version 13\n# Subtest: getPrice returns integer cents when asked for cents\nok 1 - getPrice returns integer cents when asked for cents\n  ---\n  duration_ms: 0.267833\n  type: 'test'\n  ...\n# Subtest: invoice keeps rendering dollars\nnot ok 2 - invoice keeps rendering dollars\n  ---\n  duration_ms: 0.318875\n  type: 'test'\n  location: '/private/var/folders/5l/07jps7913j9g9qv_s1q5c0940000gn/T/hive-eval-kA0xq0/tests/pricing.test.ts:11:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + '$1999.00'\n    - '$19.99'\n          ^\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: '$19.99'\n  actual: '$1999.00'\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///private/var/folders/5l/07jps7913j9g9qv_s1q5c0940000gn/T/hive-eval-kA0xq0/tests/pricing.test.ts:12:10)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.processPendingSubtests (node:internal/test_runner/test:744:18)\n    Test.postRun (node:internal/test_runner/test:1173:19)\n    Test.run (node:internal/test_runner/test:1101:12)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 1\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 46.73425\n"
+        }
+      }
+    },
+    {
+      "scenario": "No-conflict control (UI label only)",
+      "mode": "hive",
+      "run": 1,
+      "latencyMs": 614,
+      "latency": "614 ms",
+      "error": null,
+      "detected": "n/a (nothing to detect)",
+      "falseAlert": "no (0 warnings; info only: direct_edit)",
+      "integration": "yes (0 new type errors; invoice test exit 0)",
+      "cost": "0 (no model call)",
+      "expected": true,
+      "expectation": "zero warning/error findings for unrelated work",
+      "inputs": {
+        "intents": {
+          "invoice": {
+            "task": "Export invoices",
+            "files": [
+              "src/invoice.ts"
+            ],
+            "symbols": [
+              "src/invoice.ts#invoiceTotal:function"
+            ],
+            "assumptions": [
+              {
+                "key": "src/pricing.ts#getPrice:unit",
+                "value": "dollars"
+              }
+            ]
+          },
+          "ui": {
+            "task": "Change button label",
+            "files": [
+              "src/button.ts"
+            ],
+            "symbols": [
+              "src/button.ts#buttonLabel:variable"
+            ],
+            "assumptions": []
+          }
+        },
+        "edits": {
+          "src/button.ts": "export const buttonLabel = 'Download invoice';\n"
+        },
+        "integrationCheck": [
+          "type-check",
+          "node --test --test-name-pattern=invoice keeps rendering dollars tests/pricing.test.ts"
+        ]
+      },
+      "evidence": {
+        "findingsBefore": [],
+        "findingsAfter": [
+          {
+            "kind": "direct_edit",
+            "severity": "info",
+            "source": "deterministic",
+            "sessions": [
+              "9aa2652d-e53e-4837-af22-6284d392bc67"
+            ],
+            "evidence": "Files changed outside Hive operations: src/button.ts (detected 2026-11-02T22:01:19.539Z, revision 2)"
+          }
+        ],
+        "integration": {
+          "newDiagnostics": [],
+          "command": "node --test \"--test-name-pattern=invoice keeps rendering dollars\" tests/pricing.test.ts",
+          "exitCode": 0,
+          "output": "TAP version 13\n# Subtest: invoice keeps rendering dollars\nok 1 - invoice keeps rendering dollars\n  ---\n  duration_ms: 0.263208\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 48.98325\n"
+        },
+        "revision": 2
+      }
+    },
+    {
+      "scenario": "Harmless overlap (same file, no assumptions)",
+      "mode": "hive",
+      "run": 1,
+      "latencyMs": 609,
+      "latency": "609 ms",
+      "error": null,
+      "detected": "yes (file_overlap/info)",
+      "falseAlert": "no (overlap stays info)",
+      "integration": "yes (0 new type errors; invoice test exit 0)",
+      "cost": "0 (no model call)",
+      "expected": true,
+      "expectation": "overlap reported as info only, never as a warning",
+      "inputs": {
+        "intents": {
+          "label": {
+            "task": "Change button label",
+            "files": [
+              "src/button.ts"
+            ],
+            "symbols": [],
+            "assumptions": []
+          },
+          "docs": {
+            "task": "Add a doc comment to button.ts",
+            "files": [
+              "src/button.ts"
+            ],
+            "symbols": [],
+            "assumptions": []
+          }
+        },
+        "edits": [
+          "src/button.ts label change",
+          "src/button.ts doc comment"
+        ],
+        "integrationCheck": [
+          "type-check",
+          "node --test --test-name-pattern=invoice keeps rendering dollars tests/pricing.test.ts"
+        ]
+      },
+      "evidence": {
+        "findingsBefore": [
+          {
+            "kind": "file_overlap",
+            "severity": "info",
+            "source": "deterministic",
+            "sessions": [
+              "6f047a27-5dfd-461d-bd76-aa4e29648c91",
+              "9893738b-c7fb-4bec-8fe3-b57f64f03609"
+            ],
+            "evidence": "Shared files: src/button.ts"
+          }
+        ],
+        "findingsAfter": [
+          {
+            "kind": "file_overlap",
+            "severity": "info",
+            "source": "deterministic",
+            "sessions": [
+              "6f047a27-5dfd-461d-bd76-aa4e29648c91",
+              "9893738b-c7fb-4bec-8fe3-b57f64f03609"
+            ],
+            "evidence": "Shared files: src/button.ts"
+          },
+          {
+            "kind": "direct_edit",
+            "severity": "info",
+            "source": "deterministic",
+            "sessions": [
+              "6f047a27-5dfd-461d-bd76-aa4e29648c91",
+              "9893738b-c7fb-4bec-8fe3-b57f64f03609"
+            ],
+            "evidence": "Files changed outside Hive operations: src/button.ts (detected 2026-11-02T22:01:20.166Z, revision 2)"
+          }
+        ],
+        "integration": {
+          "newDiagnostics": [],
+          "command": "node --test \"--test-name-pattern=invoice keeps rendering dollars\" tests/pricing.test.ts",
+          "exitCode": 0,
+          "output": "TAP version 13\n# Subtest: invoice keeps rendering dollars\nok 1 - invoice keeps rendering dollars\n  ---\n  duration_ms: 0.308459\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 50.022833\n"
+        },
+        "revision": 2
+      }
+    },
+    {
+      "scenario": "Direct edit bypassing Hive",
+      "mode": "hive",
+      "run": 1,
+      "latencyMs": 613,
+      "latency": "613 ms",
+      "error": null,
+      "detected": "yes (direct_edit/info after the fact; revision 1 -> 2)",
+      "falseAlert": "no",
+      "integration": "yes (0 new type errors; invoice test exit 0)",
+      "cost": "0 (no model call)",
+      "expected": true,
+      "expectation": "edit outside Hive is labelled direct_edit (detected afterwards, not prevented)",
+      "inputs": {
+        "intents": {
+          "invoice": {
+            "task": "Export invoices",
+            "files": [
+              "src/invoice.ts"
+            ],
+            "symbols": [
+              "src/invoice.ts#invoiceTotal:function"
+            ],
+            "assumptions": [
+              {
+                "key": "src/pricing.ts#getPrice:unit",
+                "value": "dollars"
+              }
+            ]
+          },
+          "ui": {
+            "task": "Change button label",
+            "files": [
+              "src/button.ts"
+            ],
+            "symbols": [
+              "src/button.ts#buttonLabel:variable"
+            ],
+            "assumptions": []
+          }
+        },
+        "edits": {
+          "src/button.ts": "export const buttonLabel = 'Download invoice';\n"
+        },
+        "integrationCheck": [
+          "type-check",
+          "node --test --test-name-pattern=invoice keeps rendering dollars tests/pricing.test.ts"
+        ]
+      },
+      "evidence": {
+        "directEditFindings": [
+          {
+            "kind": "direct_edit",
+            "severity": "info",
+            "source": "deterministic",
+            "sessions": [
+              "9e641bf1-8003-4726-a819-6ce71a87e883"
+            ],
+            "evidence": "Files changed outside Hive operations: src/button.ts (detected 2026-11-02T22:01:20.778Z, revision 2)"
+          }
+        ],
+        "events": [
+          {
+            "type": "direct_edit",
+            "detail": "Files changed outside Hive operations: src/button.ts",
+            "payload": {
+              "files": [
+                "src/button.ts"
+              ],
+              "workspaceId": "85362981-8e06-4df0-9793-f5aa275c04f3",
+              "revision": 2
+            }
+          }
+        ],
+        "integration": {
+          "newDiagnostics": [],
+          "command": "node --test \"--test-name-pattern=invoice keeps rendering dollars\" tests/pricing.test.ts",
+          "exitCode": 0,
+          "output": "TAP version 13\n# Subtest: invoice keeps rendering dollars\nok 1 - invoice keeps rendering dollars\n  ---\n  duration_ms: 0.265417\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 47.230667\n"
+        }
+      }
+    },
+    {
+      "scenario": "Model timeout",
+      "mode": "hive",
+      "run": 1,
+      "latencyMs": 69,
+      "latency": "69 ms",
+      "error": null,
+      "detected": "yes (status unavailable: simulated timeout)",
+      "falseAlert": "no (0 model findings; not reported as \"no conflict\")",
+      "integration": "n/a (analysis-only scenario; no code edits)",
+      "cost": "0 (fake analyzer injected; no model call)",
+      "expected": true,
+      "expectation": "injected analyzer throwing AnalysisUnavailable(\"simulated timeout\", 3) yields explicit 'unavailable'; deterministic findings unaffected",
+      "inputs": {
+        "intents": {
+          "pricing": {
+            "task": "Make getPrice explicit about units (cents)",
+            "files": [
+              "src/pricing.ts"
+            ],
+            "symbols": [
+              "src/pricing.ts#getPrice:function"
+            ],
+            "assumptions": [
+              {
+                "key": "src/pricing.ts#getPrice:unit",
+                "value": "cents"
+              }
+            ]
+          },
+          "invoice": {
+            "task": "Export invoices",
+            "files": [
+              "src/invoice.ts"
+            ],
+            "symbols": [
+              "src/invoice.ts#invoiceTotal:function"
+            ],
+            "assumptions": [
+              {
+                "key": "src/pricing.ts#getPrice:unit",
+                "value": "dollars"
+              }
+            ]
+          },
+          "ui": {
+            "task": "Change button label",
+            "files": [
+              "src/button.ts"
+            ],
+            "symbols": [
+              "src/button.ts#buttonLabel:variable"
+            ],
+            "assumptions": []
+          }
+        },
+        "analyzer": "injected analyzer throwing AnalysisUnavailable(\"simulated timeout\", 3)"
+      },
+      "evidence": {
+        "analysis": {
+          "status": "unavailable",
+          "error": "simulated timeout",
+          "attempts": 3,
+          "findings": 0,
+          "inputHash": "53c2bfd76c4eaa0b023b7801b46cba4a38319addb522f9f6579f8af955abc83c",
+          "revision": 1
+        },
+        "deterministicFindings": [
+          {
+            "kind": "assumption_mismatch",
+            "severity": "warning",
+            "source": "deterministic",
+            "sessions": [
+              "b0f4ebda-886a-4636-945d-3ced7d0d9d60",
+              "39d0af71-3fb1-4eb4-9c53-eacaca1c8a51"
+            ],
+            "evidence": "src/pricing.ts#getPrice:unit: b0f4ebda-886a-4636-945d-3ced7d0d9d60 expects cents; 39d0af71-3fb1-4eb4-9c53-eacaca1c8a51 expects dollars"
+          },
+          {
+            "kind": "dependent_write",
+            "severity": "warning",
+            "source": "compiler",
+            "sessions": [
+              "b0f4ebda-886a-4636-945d-3ced7d0d9d60",
+              "39d0af71-3fb1-4eb4-9c53-eacaca1c8a51"
+            ],
+            "evidence": "b0f4ebda-886a-4636-945d-3ced7d0d9d60 declares work on src/pricing.ts#getPrice:function (getPrice(): number); 39d0af71-3fb1-4eb4-9c53-eacaca1c8a51's scope depends on it: src/invoice.ts (src/invoice.ts:1); src/invoice.ts#invoiceTotal:function (src/invoice.ts:3); src/invoice.ts#invoiceWithTax:function (src/invoice.ts:4)"
+          }
+        ]
+      }
+    },
+    {
+      "scenario": "Model malformed output",
+      "mode": "hive",
+      "run": 1,
+      "latencyMs": 69,
+      "latency": "69 ms",
+      "error": null,
+      "detected": "yes (status invalid: simulated malformed JSON: Unexpected token } in JSON)",
+      "falseAlert": "no (0 model findings; not reported as \"no conflict\")",
+      "integration": "n/a (analysis-only scenario; no code edits)",
+      "cost": "0 (fake analyzer injected; no model call)",
+      "expected": true,
+      "expectation": "injected analyzer throwing AnalysisInvalid(\"simulated malformed JSON\") yields explicit 'invalid'; deterministic findings unaffected",
+      "inputs": {
+        "intents": {
+          "pricing": {
+            "task": "Make getPrice explicit about units (cents)",
+            "files": [
+              "src/pricing.ts"
+            ],
+            "symbols": [
+              "src/pricing.ts#getPrice:function"
+            ],
+            "assumptions": [
+              {
+                "key": "src/pricing.ts#getPrice:unit",
+                "value": "cents"
+              }
+            ]
+          },
+          "invoice": {
+            "task": "Export invoices",
+            "files": [
+              "src/invoice.ts"
+            ],
+            "symbols": [
+              "src/invoice.ts#invoiceTotal:function"
+            ],
+            "assumptions": [
+              {
+                "key": "src/pricing.ts#getPrice:unit",
+                "value": "dollars"
+              }
+            ]
+          },
+          "ui": {
+            "task": "Change button label",
+            "files": [
+              "src/button.ts"
+            ],
+            "symbols": [
+              "src/button.ts#buttonLabel:variable"
+            ],
+            "assumptions": []
+          }
+        },
+        "analyzer": "injected analyzer throwing AnalysisInvalid(\"simulated malformed JSON\")"
+      },
+      "evidence": {
+        "analysis": {
+          "status": "invalid",
+          "error": "simulated malformed JSON: Unexpected token } in JSON",
+          "attempts": 1,
+          "findings": 0,
+          "inputHash": "0c728b9b9cdf932612b8f57364bfbbe9149667437850b2444d1b1f8bb6fc0863",
+          "revision": 1
+        },
+        "deterministicFindings": [
+          {
+            "kind": "assumption_mismatch",
+            "severity": "warning",
+            "source": "deterministic",
+            "sessions": [
+              "dc59a3b9-8604-43a6-875a-46e58daf0abe",
+              "d7d3c4dc-1b20-4f7f-93c7-fcac769f8e79"
+            ],
+            "evidence": "src/pricing.ts#getPrice:unit: dc59a3b9-8604-43a6-875a-46e58daf0abe expects cents; d7d3c4dc-1b20-4f7f-93c7-fcac769f8e79 expects dollars"
+          },
+          {
+            "kind": "dependent_write",
+            "severity": "warning",
+            "source": "compiler",
+            "sessions": [
+              "dc59a3b9-8604-43a6-875a-46e58daf0abe",
+              "d7d3c4dc-1b20-4f7f-93c7-fcac769f8e79"
+            ],
+            "evidence": "dc59a3b9-8604-43a6-875a-46e58daf0abe declares work on src/pricing.ts#getPrice:function (getPrice(): number); d7d3c4dc-1b20-4f7f-93c7-fcac769f8e79's scope depends on it: src/invoice.ts (src/invoice.ts:1); src/invoice.ts#invoiceTotal:function (src/invoice.ts:3); src/invoice.ts#invoiceWithTax:function (src/invoice.ts:4)"
+          }
+        ]
+      }
+    }
+  ]
+}

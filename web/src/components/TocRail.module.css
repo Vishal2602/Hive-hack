@@ -1,0 +1,30 @@
+/* Theme the vendored element with Arc semantic tokens. */
+.rail {
+  --toc-background: transparent;
+  --toc-surface: var(--surface-raised);
+  --toc-ink: var(--foreground);
+  --toc-copy: var(--text-secondary);
+  --toc-line: var(--border);
+  --toc-accent: var(--accent-strong);
+  --toc-title-size: 0.9375rem;
+  --toc-description-size: 0.875rem;
+  --toc-title-lines: 2;
+  --toc-description-lines: 4;
+  inline-size: 20rem;
+  max-inline-size: 100%;
+  pointer-events: none;
+  font-family: var(--font-body);
+}
+
+.rail::part(rail) {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.rail::part(title) {
+  font-weight: 500;
+}
+
+.rail::part(card) {
+  border-radius: var(--radius-control);
+}

@@ -1,0 +1,9 @@
+{
+  "$comment": "Save as <project>/.mcp.json or pass with `claude --mcp-config`. Replace /ABSOLUTE/PATH/Hive.",
+  "mcpServers": {
+    "hive": {
+      "command": "node",
+      "args": ["--disable-warning=ExperimentalWarning", "--env-file=/ABSOLUTE/PATH/Hive/.env", "/ABSOLUTE/PATH/Hive/src/server/mcp.ts"]
+    }
+  }
+}

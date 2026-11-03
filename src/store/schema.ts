@@ -1,0 +1,171 @@
+/**
+ * Durable schema. Each entry is one migration; `PRAGMA user_version` records how many ran.
+ * Append new migrations; never edit an applied one.
+ */
+export const migrations: string[] = [
+  `
+  CREATE TABLE repositories(
+    id TEXT PRIMARY KEY,
+    canonical_root TEXT NOT NULL UNIQUE,
+    revision INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE workspaces(
+    id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL REFERENCES repositories(id),
+    real_root TEXT NOT NULL,
+    base_commit TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE(repository_id, real_root)
+  );
+  CREATE TABLE sessions(
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    name TEXT NOT NULL,
+    client TEXT,
+    lease_expires_at INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','finished','expired')),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX sessions_by_status ON sessions(status, lease_expires_at);
+  CREATE TABLE intents(
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    revision INTEGER NOT NULL,
+    task TEXT NOT NULL,
+    scope_json TEXT NOT NULL,
+    assumptions_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(session_id, revision)
+  );
+  CREATE TABLE files(
+    workspace_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    indexed_at INTEGER NOT NULL,
+    PRIMARY KEY(workspace_id, path)
+  );
+  CREATE TABLE symbols(
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    logical_key TEXT NOT NULL,
+    file TEXT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    declaration_hash TEXT NOT NULL,
+    exported INTEGER NOT NULL,
+    line INTEGER NOT NULL,
+    UNIQUE(workspace_id, logical_key)
+  );
+  CREATE INDEX symbols_by_file ON symbols(workspace_id, file);
+  CREATE TABLE edges(
+    workspace_id TEXT NOT NULL,
+    from_symbol TEXT NOT NULL,
+    to_symbol TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    file TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    PRIMARY KEY(workspace_id, from_symbol, to_symbol, kind, file, line)
+  );
+  CREATE INDEX edges_by_target ON edges(workspace_id, to_symbol);
+  CREATE TABLE proposals(
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    base_revision INTEGER NOT NULL,
+    source_hashes_json TEXT NOT NULL,
+    operation_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    preview_json TEXT,
+    result_json TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE contracts(
+    id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    proposal_id TEXT,
+    owner_session_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    producer_symbol TEXT,
+    declaration TEXT NOT NULL,
+    behavior_notes TEXT NOT NULL,
+    participants_json TEXT NOT NULL,
+    intent_revisions_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE contract_versions(
+    contract_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    declaration TEXT NOT NULL,
+    behavior_notes TEXT NOT NULL,
+    participants_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY(contract_id, version)
+  );
+  CREATE TABLE acknowledgements(
+    contract_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    intent_revision INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY(contract_id, version, session_id)
+  );
+  CREATE TABLE claims(
+    id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    rule_json TEXT NOT NULL,
+    author TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE events(
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    repository_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE verification_runs(
+    id TEXT PRIMARY KEY,
+    contract_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    source_hashes_json TEXT NOT NULL,
+    command TEXT NOT NULL,
+    exit_code INTEGER NOT NULL,
+    output TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    overlay INTEGER NOT NULL,
+    passed INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE analyses(
+    id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    model TEXT,
+    latency_ms INTEGER,
+    usage_json TEXT,
+    result_json TEXT,
+    error TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE journal(
+    id TEXT PRIMARY KEY,
+    proposal_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    entries_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
+  `ALTER TABLE symbols ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}';`,
+];

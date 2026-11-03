@@ -1,0 +1,19 @@
+{
+  "$comment": "UNVERIFIED on a live install (Muse Code was not available on the build machine). Field names for mcp_servers follow dev.meta.ai/docs/muse-code/extending (transport, command, args, env, mode). The hooks block shape below is a best guess from the documented event names; confirm against your installed version and ~/.config/muse/settings.json. Hook stdin/stdout schema is undocumented: the adapter logs raw stdin to <project>/.hive/hook-log.jsonl so you can capture it.",
+  "schema_version": 1,
+  "mcp_servers": {
+    "hive": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["--disable-warning=ExperimentalWarning", "--env-file=/ABSOLUTE/PATH/Hive/.env", "/ABSOLUTE/PATH/Hive/src/server/mcp.ts"],
+      "mode": "optional"
+    }
+  },
+  "hooks": [
+    { "event": "SessionStart", "command": "node --disable-warning=ExperimentalWarning --env-file=/ABSOLUTE/PATH/Hive/.env /ABSOLUTE/PATH/Hive/src/hooks/hook.ts session-start --client muse" },
+    { "event": "PreLLMCall", "command": "node --disable-warning=ExperimentalWarning --env-file=/ABSOLUTE/PATH/Hive/.env /ABSOLUTE/PATH/Hive/src/hooks/hook.ts prompt --client muse" },
+    { "event": "PreToolUse", "command": "node --disable-warning=ExperimentalWarning --env-file=/ABSOLUTE/PATH/Hive/.env /ABSOLUTE/PATH/Hive/src/hooks/hook.ts pre-write --client muse" },
+    { "event": "PostToolUse", "command": "node --disable-warning=ExperimentalWarning --env-file=/ABSOLUTE/PATH/Hive/.env /ABSOLUTE/PATH/Hive/src/hooks/hook.ts post-write --client muse" },
+    { "event": "SessionEnd", "command": "node --disable-warning=ExperimentalWarning --env-file=/ABSOLUTE/PATH/Hive/.env /ABSOLUTE/PATH/Hive/src/hooks/hook.ts session-end --client muse" }
+  ]
+}
