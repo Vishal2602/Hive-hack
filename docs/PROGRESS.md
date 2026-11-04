@@ -226,3 +226,19 @@ hub, which compiles the combination.
    label any replay as scripted.
 5. Stretch only after that: `rename_symbol`, `add_endpoint`, more claim kinds, SSE for the dashboard.
 
+
+## Docs restructure for Hive Connect (2026-11-03, spec section 5)
+- `README.md` is now public-user first: what Hive does, "Join a workspace" (invite link + `hive-connect connect
+  --hub <hub>`), what you will see, supported clients, FAQ (no Meta key and no backend needed on laptops), then
+  links. Maintainer material moved to `docs/SELF_HOSTING.md` (install, dashboard build, env table incl.
+  `HIVE_PUBLIC_URL` and `HIVE_MODEL_PROXY_URL`, admin token and roles, Railway, first-boot clone, volume,
+  `model_diagnose`, the CONNECT proxy and a minimal Cloudflare Worker pass-through, laptop relay as operator
+  fallback, upgrades and backups). `docs/DEPLOY.md` is a pointer. New `docs/DEMO.md` (seed script + the three
+  playground agent tasks). `docs/CLIENTS.md` gains the CLI setup, stdio bridge, CLI hooks and a Muse Code
+  verified-vs-assumed list. `TEAMMATE_START_HERE.md` section 11 covers hive-connect and publishing.
+- Checked while writing: `npm install -g <folder>` does not install that folder's dependencies (probe package,
+  npm 10.9.8); `npm install` in the folder first, or a packed tarball, works. The root `package.json` has no
+  `bin`, so `npx github:Vishal2602/Hive-hack` does not provide `hive-connect`.
+- Not verified / pending: the `cli/` package was not in the tree when these docs were written (the docs describe
+  the spec's contract for it); npm publishing (human); a public hub URL; the dashboard Diagnose control;
+  Cloudflare Worker and proxy options against the real Meta API; Muse Code live; two-person run.
