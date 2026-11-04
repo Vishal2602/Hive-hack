@@ -91,11 +91,14 @@ the hub's allowlist (`HIVE_VERIFY_ALLOW`). Commands proposed by an agent never r
 
 ## Honest status (2026-11-03)
 
-- The hub side (pairing, connector credentials, checkout reports, model diagnostics, `HIVE_MODEL_PROXY_URL`) is
-  implemented and covered by `npm test`. The `hive-connect` CLI is specified in
-  [docs/superpowers/specs/2026-11-03-connect-cli-design.md](docs/superpowers/specs/2026-11-03-connect-cli-design.md);
-  its tests and publishing are tracked in `docs/PROGRESS.md`.
-- **Pending:** a public hosted hub URL in this README, publishing `hive-connect` to npm, Muse Code verified live,
-  and a run with two real people on two laptops. The model returned an empty model list from the Railway
-  host; see [model diagnostics](docs/SELF_HOSTING.md#model-diagnostics-and-egress).
+- The hub side (pairing, connector credentials, checkout reports, model diagnostics, `HIVE_MODEL_PROXY_URL`) and the
+  `hive-connect` CLI in `cli/` are implemented and covered by `npm test` (141 tests, including
+  `tests/acceptance-two-users.test.ts`, which runs the real CLI for two users against a spawned hub) and
+  `npm run test:cli` (12 tests). Spec:
+  [docs/superpowers/specs/2026-11-03-connect-cli-design.md](docs/superpowers/specs/2026-11-03-connect-cli-design.md).
+- The team hub is hosted at `https://hive-hack-production.up.railway.app` (Railway, one service). From that host the
+  Meta Model API accepts the key but lists no models and answers `model_not_found` for `muse-spark-1.3`; the same key
+  works from a laptop. Model analysis on that hub therefore shows *unavailable* until the host is accepted. See
+  [model diagnostics](docs/SELF_HOSTING.md#7-model-diagnostics-and-egress).
+- **Pending:** publishing `hive-connect` to npm, Muse Code verified live, and a run with two real people on two laptops.
 - Built during the Meta Global AI Developer Hackathon (Nov 2026) from a starter kit; see `docs/SOURCES.md`.
