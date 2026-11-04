@@ -90,7 +90,56 @@ export class ContractService {
       if (!check.ok) throw new Error(`Invalid contract declaration: ${check.problems.join('; ')}`);
     }
     const contract = this.coordinator.propose(sessionId, input);
-    return this.recordOverlay(contract);
+    return this.autoAcknowledge(this.recordOverlay(contract));
+  }
+
+  /**
+   * Routine agreements should not wait for an idle agent (a client cannot be woken from outside).
+   * The proposer always signs. Each other participant is signed for automatically when the overlay check
+   * shows no new type errors in their declared files AND they declared no assumption about the producer's file
+   * (an assumption like "getPrice:unit = dollars" is a meaning-level stake the compiler cannot judge).
+   * Everyone else still has to sign; the client hook tells them about it in their current turn.
+   */
+  autoAcknowledge(contract: Contract): Contract {
+    if (contract.status !== 'proposed') return contract;
+    const producerFile = contract.producerSymbol?.split('#')[0] ?? null;
+    const diagnostics = contract.evidence.overlayCheck?.diagnostics ?? [];
+    const sign = (id: string, reason: string): void => {
+      try {
+        this.coordinator.acknowledge(id, contract.id, contract.version);
+        this.coordinator.emit('contract.auto_acknowledged', `${contract.id.slice(0, 8)} v${contract.version} for ${this.coordinator.session(id)?.name ?? id}: ${reason}`,
+          { contractId: contract.id, version: contract.version, sessionId: id, reason });
+      } catch { /* expired session or contract changed underneath: leave it for a manual signature */ }
+    };
+    sign(contract.ownerSessionId, 'proposer');
+    for (const id of contract.participants) {
+      if (id === contract.ownerSessionId) continue;
+      const intent = this.coordinator.intent(id);
+      if (!intent) continue;
+      const stakes = producerFile ? intent.assumptions.filter(a => a.key.startsWith(`${producerFile}#`)) : [];
+      const breaks = diagnostics.filter(d => intent.files.some(file => d.startsWith(`${file}:`)));
+      if (stakes.length || breaks.length) continue;
+      sign(id, 'compatible: no type errors in their files and no stated assumption about the changed code');
+    }
+    return this.coordinator.contract(contract.id);
+  }
+
+  /** Proposed contracts still waiting for a signature from one of this member's sessions (shown to that member's hook). */
+  inbox(member: string | null | undefined): { contractId: string; version: number; title: string; declaration: string; behaviorNotes: string; proposer: string; sessionId: string; sessionName: string; reason: string }[] {
+    const out: ReturnType<ContractService['inbox']> = [];
+    for (const contract of this.coordinator.contracts()) {
+      if (contract.status !== 'proposed') continue;
+      const producerFile = contract.producerSymbol?.split('#')[0] ?? null;
+      for (const id of contract.participants) {
+        const session = this.coordinator.session(id);
+        if (!session || (session.member ?? null) !== (member ?? null) || contract.acknowledgements.includes(id)) continue;
+        const stakes = (this.coordinator.intent(id)?.assumptions ?? []).filter(a => producerFile && a.key.startsWith(`${producerFile}#`));
+        out.push({ contractId: contract.id, version: contract.version, title: contract.title, declaration: contract.declaration, behaviorNotes: contract.behaviorNotes,
+          proposer: this.coordinator.session(contract.ownerSessionId)?.name ?? contract.ownerSessionId, sessionId: id, sessionName: session.name,
+          reason: stakes.length ? `it changes code you assumed: ${stakes.map(a => `${a.key} = ${a.value}`).join('; ')}` : 'it may affect your declared files' });
+      }
+    }
+    return out;
   }
   revise(sessionId: string, contractId: string, input: ReviseInput): Contract {
     const current = this.coordinator.contract(contractId);
@@ -98,7 +147,7 @@ export class ContractService {
       const check = validateDeclaration(input.declaration, current.producerSymbol);
       if (!check.ok) throw new Error(`Invalid contract declaration: ${check.problems.join('; ')}`);
     }
-    return this.recordOverlay(this.coordinator.revise(sessionId, contractId, input));
+    return this.autoAcknowledge(this.recordOverlay(this.coordinator.revise(sessionId, contractId, input)));
   }
   private recordOverlay(contract: Contract): Contract {
     if (!contract.producerSymbol) return contract;

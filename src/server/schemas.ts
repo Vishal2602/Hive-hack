@@ -41,6 +41,7 @@ export const commandSchema = z.discriminatedUnion('action', [
   // Hook actions: authenticated by the shared token only; a hook process has no MCP session of its own.
   z.object({ action: z.literal('sync') }),
   z.object({ action: z.literal('hook_check'), file: text, clientSession: text.optional() }),
+  z.object({ action: z.literal('hook_inbox') }),
   // Laptop sync (member or admin; the caller's member name owns the files). Content null = deleted.
   z.object({ action: z.literal('remote_status') }),
   z.object({ action: z.literal('remote_push'), baseCommit: z.string().max(80).nullable().optional(), replace: z.boolean().optional(),

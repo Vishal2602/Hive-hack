@@ -121,7 +121,7 @@ function summarize(snapshot: Snapshot): string {
 }
 function emit(event: string, payload: { context?: string; decision?: 'allow' | 'deny' | 'ask'; reason?: string }): void {
   if (client === 'claude') {
-    const name = { 'session-start': 'SessionStart', prompt: 'UserPromptSubmit', 'pre-write': 'PreToolUse', 'post-write': 'PostToolUse', 'session-end': 'SessionEnd' }[event] ?? 'UserPromptSubmit';
+    const name = { 'session-start': 'SessionStart', prompt: 'UserPromptSubmit', 'pre-write': 'PreToolUse', 'post-write': 'PostToolUse', inbox: 'PostToolUse', 'session-end': 'SessionEnd' }[event] ?? 'UserPromptSubmit';
     const hookSpecificOutput: Record<string, unknown> = { hookEventName: name };
     if (payload.context) hookSpecificOutput.additionalContext = payload.context;
     if (name === 'PreToolUse' && payload.decision && payload.decision !== 'allow') { hookSpecificOutput.permissionDecision = payload.decision; hookSpecificOutput.permissionDecisionReason = payload.reason ?? ''; }
@@ -133,6 +133,21 @@ function emit(event: string, payload: { context?: string; decision?: 'allow' | '
   if (payload.reason) process.stdout.write(`${payload.reason}\n`);
   if (payload.context) process.stdout.write(`${payload.context}\n`);
   if (payload.decision === 'deny') process.exitCode = 2;
+}
+
+type Inbox = { pending: { contractId: string; version: number; title: string; declaration: string; behaviorNotes: string; proposer: string; sessionName: string; reason: string }[] };
+/**
+ * Agreements waiting for this member's signature, phrased so the agent settles them in its current turn.
+ * A client cannot be woken from outside, so every hook the agent passes through carries this.
+ */
+async function inboxText(): Promise<string> {
+  try {
+    const inbox = await callDaemon('/command', { action: 'hook_inbox' }) as Inbox;
+    if (!inbox.pending.length) return '';
+    return ['HIVE ACTION REQUIRED NOW (do this before continuing your task, no need to ask the user unless it truly conflicts with what they asked):',
+      ...inbox.pending.map(p => `- "${p.title}" proposed by ${p.proposer} needs your signature (as ${p.sessionName}) because ${p.reason}.\n  Declaration: ${p.declaration.replace(/\n/g, ' ')}\n  Notes: ${p.behaviorNotes}\n`
+        + `  If your work can follow it: call hive_acknowledge with contractId "${p.contractId}" and version ${p.version}, then adapt your code to it. If it breaks what the user asked for: call hive_reject_contract with a one-line reason.`)].join('\n');
+  } catch { return ''; /* older Hive without hook_inbox, or unreachable: other hooks report that */ }
 }
 
 // `analyze` is run by hand (or by the agent through a shell); it reads no hook payload.
@@ -157,7 +172,13 @@ try {
       const synced = root ? await fullSync(root) : null;
       await callDaemon('/command', { action: 'sync' });
       const notes = synced ? [`Hive is checking your local changes (${synced.stored.length} file(s) synced from ${root}).`, ...synced.warnings] : [];
-      emit(eventArg, { context: [summarize(await callDaemon('/snapshot') as Snapshot), ...notes].join('\n') });
+      emit(eventArg, { context: [summarize(await callDaemon('/snapshot') as Snapshot), ...notes, await inboxText()].filter(Boolean).join('\n') });
+      break;
+    }
+    case 'inbox': {
+      // Cheap check after any other tool call, so a busy agent hears about a pending agreement within one step.
+      const text = await inboxText();
+      emit(eventArg, { context: text || undefined });
       break;
     }
     case 'pre-write': {
@@ -177,7 +198,9 @@ try {
           notes.push(...remote.warnings);
         }
       }
-      for (const c of check.pendingContracts) reasons.push(`${check.file} is the producer file of Ghost Contract "${c.title}" (${c.id.slice(0, 8)} v${c.version}), proposed but not yet accepted by ${c.missing.length} participant(s). Acknowledge/reject it with hive_acknowledge or hive_reject_contract first.`);
+      for (const c of check.pendingContracts) reasons.push(`${check.file} is the producer file of Ghost Contract "${c.title}" (${c.id.slice(0, 8)} v${c.version}), proposed but not yet accepted by ${c.missing.length} teammate(s). Hive could not sign it for them automatically: their code or stated assumptions depend on this. Their agent is asked at its next step. Approve to go ahead now anyway, or wait for their signature.`);
+      const inbox = await inboxText();
+      if (inbox) notes.push(inbox);
       const peers = check.declaredBy.filter(d => d.name).map(d => `${d.name} (${d.task})`);
       const context = [peers.length ? `Hive: ${check.file} is in the declared scope of: ${peers.join('; ')}.` : '',
         check.dependentSessions.length ? `Hive: symbols in ${check.file} are used by work of: ${check.dependentSessions.map(d => `${d.name} (${d.task})`).join('; ')}. Consider hive_preview_operation or a Ghost Contract.` : '',
@@ -199,7 +222,7 @@ try {
       const snapshot = await callDaemon('/snapshot') as Snapshot;
       const problems = snapshot.findings.filter(f => f.kind === 'claim_violation' || f.kind === 'structural_incompatibility');
       const context = [touched.length ? `Hive reindexed after your edit: ${touched.join(', ')} (revision ${snapshot.repository.revision}). This was a direct edit, recorded after the fact.` : '',
-        ...problems.map(f => `Hive ${f.kind}: ${f.evidence}`)].filter(Boolean).join('\n');
+        ...problems.map(f => `Hive ${f.kind}: ${f.evidence}`), await inboxText()].filter(Boolean).join('\n');
       emit(eventArg, { context: context || undefined });
       break;
     }

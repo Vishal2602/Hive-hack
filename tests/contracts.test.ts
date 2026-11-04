@@ -141,7 +141,8 @@ test('revising a contract re-arms the agreement gate and needs fresh acknowledge
     service.coordinator.acknowledge(b.id, contract.id, 1); service.coordinator.acknowledge(a.id, contract.id, 1);
     const revised = service.revise(a.id, contract.id, { declaration: "export declare function getPrice(unit: 'cents' | 'dollars' | 'euros'): number;" });
     assert.equal(revised.version, 2);
-    assert.deepEqual(revised.acknowledgements, []);
+    // Only the proposer is signed automatically; the invoice agent assumed dollars, so it must sign again.
+    assert.deepEqual(revised.acknowledgements, [a.id]);
     assert.equal(service.preview(a.id, OPERATION).status, 'rejected');
     assert.throws(() => service.coordinator.acknowledge(b.id, contract.id, 1), /version/);
     service.coordinator.acknowledge(b.id, contract.id, 2); service.coordinator.acknowledge(a.id, contract.id, 2);
@@ -185,6 +186,24 @@ test('field_required claim: violations by direct edit are reported; staged opera
     const reasons = gate({ sessionId: a.id, workspaceId: service.coordinator.workspaceId, operation: ok.operation, symbol: service.graph().symbol('src/types.ts#LineItem:interface')!, staged, touchedFiles: ['src/types.ts'], newDiagnostics: [] });
     assert.equal(reasons.length, 1);
     assert.match(reasons[0]!, /Claim .* violated: .*quantity: number \(field missing\)/);
+  } finally { cleanup(); }
+});
+
+test('auto-signing: proposer and unaffected teammates sign at once; a teammate with a stake gets it in their inbox', () => {
+  const { service, a, b, c, cleanup } = setup();
+  try {
+    const routine = service.propose(a.id, { title: 'routine', declaration: DECLARATION, participants: [c.id], producerSymbol: PRODUCER });
+    assert.equal(routine.status, 'accepted', 'ui agent has no stake in pricing.ts and no type errors: nobody waits');
+    assert.ok(service.coordinator.events().some(e => e.type === 'contract.auto_acknowledged' && e.payload?.sessionId === c.id));
+    const staked = service.propose(a.id, { title: 'staked', declaration: DECLARATION, participants: [b.id], producerSymbol: PRODUCER });
+    assert.equal(staked.status, 'proposed');
+    assert.deepEqual(staked.acknowledgements, [a.id]);
+    const member = service.coordinator.session(b.id)!.member;
+    const inbox = service.contracts.inbox(member).filter(p => p.contractId === staked.id);
+    assert.equal(inbox.length, 1);
+    assert.match(inbox[0]!.reason, /getPrice:unit = dollars/);
+    service.coordinator.acknowledge(b.id, staked.id, 1);
+    assert.equal(service.contracts.inbox(member).filter(p => p.contractId === staked.id).length, 0);
   } finally { cleanup(); }
 });
 

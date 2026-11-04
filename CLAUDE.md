@@ -37,7 +37,43 @@ React/Vite for the final local dashboard, and test tooling if needed. Prefer few
 No need to ask about routine dependencies within this scope. Explain additions.
 
 ## Honest limitations
-Current persistence is memory. Contracts are declaration strings, not typed holes.
-The model adapter is not wired up. Hooks are not configured. Do not portray any of
-these as completed. In an unavailable-credentials environment keep implementing
-and testing locally, and report the precise blocked live validation step.
+Persistence is SQLite (.hive/hive.db; HIVE_DB=:memory: for tests). Contracts are
+declaration strings, not typed holes. The Meta model adapter exists, but the hosted
+Railway server cannot reach Meta's API; it works from a laptop (directly when Hive runs
+locally, or via `node .hive/hive-hook.mjs analyze` relay). Client hooks are generated
+from src/hooks/hook.ts and served at /hook.mjs; Connect (/connect.mjs) installs them.
+In an unavailable-credentials environment keep implementing and testing locally, and
+report the precise blocked live validation step.
+
+## Current work (hackathon finish, uncommitted)
+Problem: Ghost Contract signing needed manual back-and-forth. A consumer agent only learned
+a signature was pending when its developer sent another prompt. Claude Code sessions cannot
+be woken from outside, so the design must not depend on an idle agent.
+
+Changes made (all tests pass, typecheck clean, NOT committed, NOT yet tested with two live agents):
+- src/contracts/service.ts `autoAcknowledge`: on propose/revise, Hive signs for the proposer, and
+  for each other participant whose declared files get no new overlay type errors AND who stated no
+  assumption whose key starts with the producer file (`src/pricing.ts#...`). Emits
+  `contract.auto_acknowledged`. Otherwise the participant must sign.
+- src/contracts/service.ts `inbox(member)`: proposed contracts waiting on that member's sessions.
+- src/server/daemon.ts + schemas.ts: new hook action `hook_inbox` (member from the token).
+- src/hooks/hook.ts: `inboxText()` adds "HIVE ACTION REQUIRED NOW ... hive_acknowledge / hive_reject_contract"
+  to prompt, pre-write and post-write context, plus a new `inbox` event (PostToolUse after
+  Read|Grep|Glob|mcp__hive__.*). The producer's pre-write still gates (ask) while a staked participant is missing.
+- src/domain/coordinator.ts: a repeat acknowledgement returns early (no duplicate event).
+- src/hooks/connect.ts: adds the inbox hook; fixes mergeSettings dropping earlier Hive entries when
+  one event has several Hive hooks.
+- tests/contracts.test.ts: updated 2 tests for proposer auto-sign; added an auto-signing/inbox test.
+
+Known gaps: auto-sign relies on agents declaring assumptions; the file-level stake check is broad
+(errs toward asking); Meta analysis is not part of the auto-sign decision (too slow for a hook).
+
+Local run for the demo (from a normal terminal; a Claude session's own HIVE_TOKEN env overrides .env):
+  HIVE_PROJECT_ROOT=~/Documents/Projects/hive-server-repo npm start   # a separate clone of hive-playground
+  Dashboard http://127.0.0.1:4317/ui (admin = HIVE_TOKEN in .env); create member tokens; run the
+  Connect command in each playground folder. For two laptops: `cloudflared tunnel --url http://localhost:4317`
+  and set HIVE_PUBLIC_URL to the tunnel URL.
+Test plan: two playground folders (hive-playground, hive-playground-vishal) with two member tokens.
+  1) UI-label task + getPriceCents task -> contract accepted immediately.
+  2) buildReceipt (assumes dollars) + getPriceCents -> proposer gets one approval prompt; the receipt
+     agent sees HIVE ACTION REQUIRED at its next step and signs/rejects on its own.
