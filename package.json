@@ -12,6 +12,7 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/server/daemon.ts",
     "start:prod": "node --disable-warning=ExperimentalWarning src/server/daemon.ts",
+    "build": "npm run build:web",
     "mcp": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/server/mcp.ts",
     "demo": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env demo/scenario.ts",
     "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.ts",

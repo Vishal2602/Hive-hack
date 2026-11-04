@@ -172,3 +172,5 @@ stored on the laptop or sent to the hub.
 Single instance; no TLS in Hive (the host terminates it); `hive_verify` runs tests on the host without a
 sandbox, so only point a hub at a repository you trust; edits outside a client's Edit/Write tools are seen at
 the next prompt, not gated.
+
+> Build note (2026-11-03): Railpack runs the root `npm run build` script automatically, which is how the dashboard gets built on every deploy (including `railway up`). `railway.json`'s buildCommand was not applied on an upload deploy, so do not rely on it alone.
