@@ -119,6 +119,7 @@ test('diagnose: an unreachable provider is network_error', async () => {
 
 test('verdict order: a rejected key wins over 404; a working chat wins over an odd model list', () => {
   assert.equal(diagnoseVerdict(404, null, 401), 'key_rejected');
+  assert.equal(diagnoseVerdict(401, null, 200), 'reachable', 'a working completion outranks a rejected GET /models');
   assert.equal(diagnoseVerdict(200, 0, 200), 'reachable');
   assert.equal(diagnoseVerdict(200, 3, 404), 'no_models_for_host');
   assert.equal(diagnoseVerdict(200, 3, 500), 'network_error');
@@ -208,7 +209,7 @@ test('model_diagnose: admin only; the hub keeps the last result in its snapshot;
     const session = service.coordinator.register('pricing');
     const analysis = await service.analyze(session.id);
     assert.equal(analysis.status, 'unavailable');
-    assert.match(analysis.error!, /^The model provider is not reachable from this server \(HTTP 404, no models offered to this host\)\. Details: Meta API HTTP 404/);
+    assert.match(analysis.error!, /^The model provider is not reachable from this server \(HTTP 404, no models offered to this host\)\. Details: Meta Model API HTTP 404/);
   } finally { rmSync(dir, { recursive: true, force: true }); await p.close(); }
 });
 

@@ -2,13 +2,22 @@
 // sources so the client cannot drift from what the daemon sends. Relative paths, not the "@hive"
 // alias, so this folder also type-checks and runs under Node for the backend's test suite.
 import type { Event, VerificationRun } from '../../../src/domain/types.ts';
-import type { ModelDiagnosis } from '../../../src/intelligence/meta.ts';
-import type { ConnectorSummary, HiveView, MemberSummary, ServiceSnapshot, ViewEvent } from '../../../src/service.ts';
+import type { ModelDiagnosis as HubModelDiagnosis } from '../../../src/intelligence/meta.ts';
+import type { ConnectorSummary, HiveView, MemberSummary, ModelSnapshot, ServiceSnapshot, ViewEvent } from '../../../src/service.ts';
 import type { PairingInfo, PairingStatus } from '../../../src/server/pairing.ts';
 import type { Command } from '../../../src/server/schemas.ts';
 import type { CreatedToken, Role, TokenRecord } from '../../../src/server/tokens.ts';
 
-export type { Command, ConnectorSummary, CreatedToken, Event, HiveView, MemberSummary, ModelDiagnosis, PairingInfo, PairingStatus, Role, ServiceSnapshot, TokenRecord, VerificationRun, ViewEvent };
+export type { Command, ConnectorSummary, CreatedToken, Event, HiveView, MemberSummary, ModelSnapshot, PairingInfo, PairingStatus, Role, ServiceSnapshot, TokenRecord, VerificationRun, ViewEvent };
+
+/** The provider the hub's model analysis talks to (HIVE_MODEL_PROVIDER): Meta's Model API or Muse Spark Open on Fireworks. */
+export type ModelProvider = 'meta' | 'fireworks';
+/**
+ * model_diagnose answer (src/intelligence/meta.ts ModelDiagnosis). `provider` is optional here because hubs built before
+ * 2026-11-03 do not send it; the dashboard shows the row only when present. (snapshot.model.provider is already optional
+ * on the hub's ModelSnapshot and HiveView, so those pass through unchanged and fixtures may omit it.)
+ */
+export type ModelDiagnosis = Omit<HubModelDiagnosis, 'provider'> & { provider?: ModelProvider };
 
 /** What signed in: the operator (HIVE_TOKEN), a member's browser/agent token, or a Hive Connect credential. */
 export type MeKind = 'operator' | 'member' | 'connector' | 'viewer-link';

@@ -278,6 +278,11 @@ test('model settings pasted with stray spaces or quotes are cleaned; a 404 names
     fetch: (async (u: string) => { url = String(u); return new Response('{"error":{"message":"Not found"}}', { status: 404 }); }) as unknown as typeof fetch });
   assert.equal(analyzer.model, 'muse-spark-1.3');
   const bundle = { revision: 0, inputHash: 'x', intents: [], candidates: [], contracts: [], symbols: [], dependents: [] };
-  await assert.rejects(analyzer.analyze(bundle, []), /HTTP 404: Not found \(model "muse-spark-1\.3" at https:\/\/api\.example\.test\/v1\/chat\/completions/);
+  // The hint names the endpoint by HOST only: a pass-through base URL may carry a secret path segment and this text is shown to members.
+  await assert.rejects(analyzer.analyze(bundle, []), (error: Error) => {
+    assert.match(error.message, /HTTP 404: Not found \(model "muse-spark-1\.3" at api\.example\.test\/chat\/completions; check HIVE_MODEL and HIVE_MODEL_BASE_URL/);
+    assert.doesNotMatch(error.message, /api\.example\.test\/v1/, 'the base URL path is not echoed into the member-visible error');
+    return true;
+  });
   assert.equal(url, 'https://api.example.test/v1/chat/completions');
 });

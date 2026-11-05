@@ -104,7 +104,8 @@ function dispatch(command: Command, auth: Auth, context: RequestContext): unknow
     case 'sync': return service.sync();
     case 'hook_check': return service.hookCheck(command.file);
     case 'analysis_relay_request': return service.analysis.relayRequest();
-    case 'model_diagnose': return service.analysis.diagnose();
+    case 'model_diagnose': return service.analysis.diagnose(command.provider);
+    case 'model_probe': return service.analysis.probe(command.provider);
     case 'analysis_relay_submit': return service.analysis.relaySubmit({ ...command, via: auth.member });
     case 'remote_status': return { ...service.remote.state(), member: auth.member };
     case 'remote_push': return service.remote.push(auth.member, { files: command.files, baseCommit: command.baseCommit ?? null, replace: command.replace });
@@ -262,6 +263,7 @@ const server = createServer(async (request, response) => {
     response.writeHead(error instanceof AuthError || error instanceof RateLimitError ? error.status : 400).end(JSON.stringify({ error: error instanceof Error ? error.message : 'Request failed' }));
   }
 });
+// Bounds receiving a request (headers + body), not producing the response: a model_probe that takes ~100 s still answers.
 server.requestTimeout = 15_000;
 
 // ---- listen: PORT (Railway) first, then HIVE_PORT, then 4317; HIVE_HOST defaults to loopback ----

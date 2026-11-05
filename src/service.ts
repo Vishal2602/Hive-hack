@@ -7,7 +7,7 @@ import { ClaimService, type Claim, type ClaimRule } from './contracts/claims.ts'
 import { ContractService, type ContractCheck } from './contracts/service.ts';
 import type { ProposeInput, ReviseInput } from './domain/coordinator.ts';
 import type { Contract, VerificationRun } from './domain/types.ts';
-import { MetaAnalyzer, type ModelDiagnosis } from './intelligence/meta.ts';
+import { createAnalyzer, type MetaOptions, type ModelDiagnosis, type ModelProvider } from './intelligence/meta.ts';
 import { AnalysisService } from './intelligence/service.ts';
 import type { Analysis, Analyzer } from './intelligence/types.ts';
 import { OperationEngine, type Gate } from './ops/engine.ts';
@@ -26,13 +26,15 @@ export interface ServiceOptions extends Omit<CoordinatorOptions, 'detectors' | '
   /** Verification child timeout (default 120 s) and kept output bytes (default 64 KB). */
   verifyTimeoutMs?: number;
   verifyOutputLimit?: number;
-  /** Model adapter. Defaults to MetaAnalyzer over MODEL_API_KEY; tests inject a fake. */
+  /** Model adapter. Defaults to the provider HIVE_MODEL_PROVIDER names (Meta over MODEL_API_KEY, or Fireworks over FIREWORKS_API_KEY); tests inject a fake. */
   analyzer?: Analyzer;
+  /** Builds an analyzer for a given provider (model_diagnose / model_probe with an explicit provider). Default: from the environment. */
+  analyzerFor?: (provider: ModelProvider, overrides?: Partial<MetaOptions>) => Analyzer;
 }
 export interface GraphSummary { workspaceId: string; indexed: boolean; symbols: number; edges: number; files: number; lastSync: FileChanges | null }
 export interface ServiceSnapshot extends Snapshot { sessions: SnapshotSession[]; graph: GraphSummary; proposals: Proposal[]; claims: Claim[]; analysis: Analysis | null; model: ModelSnapshot; remote?: RemoteState }
 /** Model state for members/admins: the key itself never appears, only whether it is set on the hub. lastDiagnose is memory only. */
-export interface ModelSnapshot { configured: boolean; model: string; baseUrlHost?: string | null; proxy?: boolean; lastDiagnose?: ModelDiagnosis | null }
+export interface ModelSnapshot { configured: boolean; provider?: ModelProvider; model: string; baseUrlHost?: string | null; proxy?: boolean; lastDiagnose?: ModelDiagnosis | null }
 export interface HookCheck {
   file: string;
   pendingContracts: { id: string; version: number; title: string; missing: string[] }[];
@@ -83,8 +85,9 @@ export class HiveService {
     this.recoveredJournals = Number(this.store.get<{ n: number }>("SELECT COUNT(*) AS n FROM journal WHERE status = 'writing'")?.n ?? 0);
     this.engine = new OperationEngine({ store: this.store, coordinator: this.coordinator, graph: id => this.graph(id), sync: id => this.sync(id),
       gates: [this.contracts.gate(), this.claims.gate(id => this.graph(id)), ...(options.gates ?? [])], clock: this.clock, onFileWritten: options.onFileWritten });
-    this.analyzer = options.analyzer ?? new MetaAnalyzer();
-    this.analysis = new AnalysisService({ store: this.store, coordinator: this.coordinator, graph: id => this.graph(id), sync: id => this.sync(id), findings: () => this.coordinator.findings(), analyzer: this.analyzer, changes: () => this.remote.evidence(), clock: this.clock });
+    this.analyzer = options.analyzer ?? createAnalyzer();
+    this.analysis = new AnalysisService({ store: this.store, coordinator: this.coordinator, graph: id => this.graph(id), sync: id => this.sync(id), findings: () => this.coordinator.findings(), analyzer: this.analyzer,
+      analyzerFor: options.analyzerFor, changes: () => this.remote.evidence(), clock: this.clock });
   }
 
   analyze(sessionId: string, options: { force?: boolean } = {}): Promise<Analysis> { return this.analysis.analyze(sessionId, options); }
@@ -230,9 +233,9 @@ export class HiveService {
 
   /** Snapshot without a drift check: no file hashing, only DB reads and graph lookups. */
   private buildSnapshot(): ServiceSnapshot {
-    const analyzer = this.analyzer as { configured?: boolean; model?: string; baseUrlHost?: string; proxy?: boolean };
+    const analyzer = this.analyzer as { configured?: boolean; provider?: ModelProvider; model?: string; baseUrlHost?: string; proxy?: boolean };
     return { ...this.coordinator.snapshot(), graph: this.graphSummary(), proposals: this.engine.proposals(20), claims: this.claims.active(), analysis: this.analysis.latest(),
-      model: { configured: analyzer.configured ?? true, model: analyzer.model ?? 'custom', baseUrlHost: analyzer.baseUrlHost ?? null, proxy: analyzer.proxy ?? false,
+      model: { configured: analyzer.configured ?? true, provider: analyzer.provider ?? 'meta', model: analyzer.model ?? 'custom', baseUrlHost: analyzer.baseUrlHost ?? null, proxy: analyzer.proxy ?? false,
         lastDiagnose: this.analysis.lastDiagnose }, remote: this.remote.state() };
   }
 
@@ -384,7 +387,7 @@ export interface HiveView {
   workspace: { name: string };
   revision: number;
   graph: { indexed: boolean; symbols: number; files: number };
-  model: { configured: boolean; model: string };
+  model: { configured: boolean; provider?: ModelProvider; model: string };
   sessions: { id: string; member: string; agent: string; task: string | null; step: string; connector?: SessionConnector | null }[];
   members: { member: string; sessions: number }[];
   findings: { kind: string; severity: string; source: string; evidence: string; sessions: string[]; symbols: string[]; files: string[] }[];
@@ -460,7 +463,7 @@ export function sanitizeView(snapshot: ServiceSnapshot, extras: ViewExtras): Hiv
     workspace: { name: cap(basename(snapshot.repository.canonicalRoot), 80) },
     revision: snapshot.repository.revision,
     graph: { indexed: snapshot.graph.indexed, symbols: snapshot.graph.symbols, files: snapshot.graph.files },
-    model: { configured: snapshot.model.configured, model: cap(snapshot.model.model, 80) },
+    model: { configured: snapshot.model.configured, provider: snapshot.model.provider ?? 'meta', model: cap(snapshot.model.model, 80) },
     sessions,
     members: [...members].map(([member, count]) => ({ member, sessions: count })),
     findings: snapshot.findings.map(finding => ({ kind: finding.kind, severity: finding.severity, source: finding.source, evidence: text(finding.evidence, 300),

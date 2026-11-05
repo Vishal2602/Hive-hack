@@ -46,10 +46,15 @@ can be revoked there too.
 |---|---|---|
 | `HIVE_TOKEN` | **yes** | Operator (admin) credential. Never shown in the UI. |
 | `HIVE_PUBLIC_URL` | recommended when hosted | Public base URL (for example `https://hive.example.com`). Used in invite links, the Connect command and `/connect.mjs`. Without it the hub derives it from `X-Forwarded-Proto` and `Host`. |
-| `MODEL_API_KEY` | no | Meta Model API key for Muse Spark analysis. Lives **only** on the hub. Without it analysis reports "unavailable". Each analysis is a paid call. |
-| `HIVE_MODEL` | no | Default `muse-spark-1.3`. |
-| `HIVE_MODEL_BASE_URL` | no | Default `https://api.meta.ai/v1`. Point it at a pass-through (section 7) to change the egress. |
-| `HIVE_MODEL_PROXY_URL` | no | `http://` or `https://` CONNECT proxy for model requests only (`user:pass@` supported; credentials never appear in errors). |
+| `HIVE_MODEL_PROVIDER` | no | `meta` (default when unset) or `fireworks`: which provider runs the hub's model analysis. Any other value stops the hub at start-up; there is no silent fallback. Switching changes only this variable (section 7). |
+| `MODEL_API_KEY` | no | Meta provider: Meta Model API key for Muse Spark analysis. Lives **only** on the hub. Without it analysis reports "unavailable". Each analysis is a paid call. |
+| `HIVE_MODEL` | no | Meta provider: default `muse-spark-1.3`. |
+| `HIVE_MODEL_BASE_URL` | no | Meta provider: default `https://api.meta.ai/v1`. Point it at a pass-through (section 7) to change the egress. |
+| `FIREWORKS_API_KEY` | no | Fireworks provider: key for Muse Spark Open on Fireworks. Lives **only** on the hub, as a service secret. The Meta provider never reads it, and Fireworks never reads `MODEL_API_KEY`. |
+| `HIVE_FIREWORKS_MODEL` | no | Fireworks provider: default `accounts/fireworks/models/muse-spark-open`. |
+| `HIVE_FIREWORKS_BASE_URL` | no | Fireworks provider: default `https://api.fireworks.ai/inference/v1`. |
+| `HIVE_MODEL_PROXY_URL` | no | Both providers: `http://` or `https://` CONNECT proxy for model requests only (`user:pass@` supported; credentials never appear in errors). |
+| `HIVE_MODEL_TIMEOUT_MS` | no | Both providers: timeout per model request, default `30000`, clamped to `5000`..`120000` (non-numeric values use the default). |
 | `HIVE_REPO_URL` / `HIVE_REPO_BRANCH` | no | Cloned into `HIVE_PROJECT_ROOT` on first boot when that folder is missing or empty (section 5). |
 | `HIVE_PROJECT_ROOT` | no | The repository Hive indexes, edits and verifies (default: current directory). |
 | `HIVE_DATA_DIR` | no | SQLite state and recovery journal (default `<project root>/.hive`). |
@@ -102,8 +107,8 @@ against the **hub's** checkout only.
 
 ## 7. Model diagnostics and egress
 
-Run the admin-only `model_diagnose` command. The spec puts a **Diagnose** control under the dashboard's model
-banner; until that screen lands, call it directly (token read from your shell, never typed into a file):
+Run the admin-only `model_diagnose` command: the **Diagnose** control under the dashboard's model banner, or
+directly (token read from your shell, never typed into a file):
 
 ```bash
 curl -s -X POST "$HIVE_HUB/command" -H "Authorization: Bearer $HIVE_TOKEN" \
@@ -112,7 +117,9 @@ curl -s -X POST "$HIVE_HUB/command" -H "Authorization: Bearer $HIVE_TOKEN" \
 
 From the hub it calls `GET {base}/models` and a one-token chat completion, and returns status codes, short
 excerpts (key redacted), request-id headers, the hub's egress IP (via `api.ipify.org`, best effort) and a
-verdict: `not_configured`, `key_rejected`, `rate_limited`, `no_models_for_host`, `network_error` or `reachable`.
+verdict: `not_configured`, `key_rejected`, `rate_limited`, `no_models_for_host`, `model_not_found`, `network_error` or
+`reachable`, plus the `provider` it talked to. A 2xx completion is always `reachable`, whatever the model list said.
+Add `"provider":"fireworks"` (or `"meta"`) to diagnose the other provider without switching to it.
 
 Observed on 2026-11-03: from the Railway service (US East and US West) the Meta Model API returned an **empty
 model list / 404** for a key that lists every model from a laptop. Meta's docs say model availability can vary
@@ -156,6 +163,54 @@ key works: `hive-connect relay` (CLI) or `node .hive/hive-hook.mjs analyze` (old
 (`analysis_relay_request`), the laptop sends it, and the raw response is posted back (`analysis_relay_submit`),
 parsed and validated exactly like a direct call, and labelled **relayed** on the dashboard. The key is never
 stored on the laptop or sent to the hub.
+
+### Switching the provider to Fireworks (Muse Spark Open)
+
+The hub can run the same analysis against Meta's open-weights Muse Spark Open on Fireworks
+(`accounts/fireworks/models/muse-spark-open`, OpenAI-compatible `POST /chat/completions`). The adapter, the analysis
+schema and its validation, the bounded retries and timeouts are the same; only the key, base URL and model id differ.
+Prove it works from the hub **before** switching:
+
+1. **Set the key as a service secret** from your own terminal (`railway variables --set FIREWORKS_API_KEY=...`); never
+   on a laptop, never in a chat or a file. Leave `HIVE_MODEL_PROVIDER` unset: the hub keeps using Meta.
+2. **Diagnose Fireworks from the hub** without activating it:
+
+   ```bash
+   curl -s -X POST "$HIVE_HUB/command" -H "Authorization: Bearer $HIVE_TOKEN" \
+     -H 'Content-Type: application/json' -d '{"action":"model_diagnose","provider":"fireworks"}'
+   ```
+
+   `reachable` means a one-token completion answered 2xx. `model_not_found` means Fireworks answered 404 for
+   `HIVE_FIREWORKS_MODEL` (not found or not deployed). The `GET /models` probe is informational only for Fireworks
+   (it is not a serverless model list) and never decides the verdict. Hints name `FIREWORKS_API_KEY`, billing
+   (HTTP 402) and rate limits (HTTP 429); proxy and relay advice applies to Meta only.
+3. **Probe a real analysis** (up to ~100 s; synthetic repository data, nothing is written to the database and no
+   session is needed):
+
+   ```bash
+   curl -s --max-time 120 -X POST "$HIVE_HUB/command" -H "Authorization: Bearer $HIVE_TOKEN" \
+     -H 'Content-Type: application/json' -d '{"action":"model_probe","provider":"fireworks"}'
+   ```
+
+   Three checks run in parallel: a minimal completion ("Reply with the single word OK."), a conflict analysis (two
+   sessions disagree on whether `getPrice` returns cents or dollars; expected: a `semantic_conflict` naming both
+   sessions and citing that symbol or the unit assumption) and a harmless overlap (two sessions edit unrelated
+   functions in one file; expected: no conflict finding). `verdict` is `pass` only when the completion answered 2xx
+   and both expectations were met; `fail` shows which check missed (`expectation.detail`) or errored (sanitized
+   `error`); `not_configured` means `FIREWORKS_API_KEY` is missing. Malformed or truncated model JSON counts as
+   `invalid`, never as "no conflict". The report never contains the key, headers or raw provider bodies.
+4. **Activate:** set `HIVE_MODEL_PROVIDER=fireworks` and restart. Optional: `HIVE_FIREWORKS_MODEL`,
+   `HIVE_FIREWORKS_BASE_URL`, `HIVE_MODEL_TIMEOUT_MS`. `model_diagnose` and the dashboard's Diagnose panel then
+   name the provider "Fireworks (Muse Spark Open)"; `/snapshot` and `/api/view` carry `model.provider: "fireworks"`.
+5. **Roll back:** set `HIVE_MODEL_PROVIDER=meta` (or unset it) and restart. The Meta variables (`MODEL_API_KEY`,
+   `HIVE_MODEL`, `HIVE_MODEL_BASE_URL`) are left untouched the whole time and are never read by the Fireworks
+   provider. An unknown `HIVE_MODEL_PROVIDER` value stops the hub at start-up instead of falling back.
+
+Fireworks statuses in errors and diagnoses: 402 billing (not on a paid plan or usage exceeded), 412 account
+problem, 404 model not found or not deployed, 429 serverless rate limit and 500/503 (retried with backoff), other
+5xx reported without retry.
+The laptop relay (`hive-connect relay`) is Meta-only: with Fireworks active, `analysis_relay_request` is refused
+because the hub reaches Fireworks directly.
 
 ## 8. Upgrades and backups
 
