@@ -11,7 +11,10 @@ if (!key.trim()) {
   console.error('MODEL_API_KEY is empty. Put it in .env as MODEL_API_KEY=<key> (never paste it into chat), then rerun `npm run smoke:model`.');
   process.exit(1);
 }
-console.error(`Key present (${key.length} chars, not shown). Model: ${process.env.HIVE_MODEL ?? 'muse-spark-1.3'}. Endpoint: ${process.env.HIVE_MODEL_BASE_URL ?? 'https://api.meta.ai/v1'}/chat/completions`);
+// Pinned to the Meta provider: this script reads MODEL_API_KEY, so it must never follow HIVE_MODEL_PROVIDER=fireworks
+// (that would send the Meta key to Fireworks). The banner is derived from the analyzer so it cannot disagree with the request.
+const analyzer = new MetaAnalyzer({ provider: 'meta', apiKey: key, maxAttempts: 2, timeoutMs: 60_000 });
+console.error(`Key present (${key.length} chars, not shown). Provider: ${analyzer.label}. Model: ${analyzer.model}. Endpoint: ${analyzer.baseUrl}/chat/completions`);
 
 const bundle: EvidenceBundle = {
   revision: 0,
@@ -27,7 +30,6 @@ const bundle: EvidenceBundle = {
 };
 
 try {
-  const analyzer = new MetaAnalyzer({ apiKey: key, maxAttempts: 2, timeoutMs: 60_000 });
   const result = await analyzer.analyze(bundle, ['smoke-a', 'smoke-b']);
   console.log(JSON.stringify({ ok: true, model: result.model, latencyMs: result.latencyMs, attempts: result.attempts, usage: result.usage,
     summary: result.summary, findings: result.findings.map(f => ({ kind: f.kind, confidence: f.confidence, explanation: f.explanation, proposedDeclaration: f.proposedDeclaration ?? null })), dropped: result.dropped }, null, 2));

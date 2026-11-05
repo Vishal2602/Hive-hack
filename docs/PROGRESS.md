@@ -268,3 +268,23 @@ hub, which compiles the combination.
 - Remaining: `npm publish` of `cli/` (human); Muse Code live session; a real two-agent run
   (`node --disable-warning=ExperimentalWarning scripts/acceptance-live.ts`); Meta accepting the Railway host (or an
   accepted egress via `HIVE_MODEL_PROXY_URL`) before hub-side model analysis works.
+
+## Model provider selection (Fireworks) (2026-11-03)
+- Added `HIVE_MODEL_PROVIDER` (`meta` by default, `fireworks`; any other value stops the hub at start-up, no silent
+  fallback) and the Fireworks settings `FIREWORKS_API_KEY`, `HIVE_FIREWORKS_MODEL`
+  (`accounts/fireworks/models/muse-spark-open`), `HIVE_FIREWORKS_BASE_URL` (`https://api.fireworks.ai/inference/v1`),
+  plus `HIVE_MODEL_TIMEOUT_MS` for both providers. The Meta variables are untouched and a provider never reads the
+  other's key. The existing `MetaAnalyzer` adapter serves both providers: the Meta request body stays byte-identical;
+  Fireworks adds `max_tokens` and the response JSON schema in the prompt; `finish_reason=length`, null and malformed
+  JSON are explicit analysis failures, not empty results.
+- `model_diagnose` reports `provider`, endpoint, model, HTTP statuses and sanitized errors (new verdict
+  `model_not_found`; a 2xx completion always wins) and takes an optional `provider`. New admin `model_probe`
+  (optional `provider`): minimal completion + conflict analysis + harmless overlap on synthetic repository data
+  (`src/intelligence/probes.ts`), no database writes, verdict `pass` / `fail` / `not_configured`; no key or raw
+  provider body in the report. The laptop relay stays Meta-only.
+- Dashboard: Diagnose panel shows a Provider row when the hub sends one; `model_not_found` headline. Web types keep
+  `provider` optional (`web/src/api/types.ts`) so older hubs and fixtures still work. Docs: SELF_HOSTING sections 3
+  and 7 ("Switching the provider to Fireworks"), README.
+- Pending: no live Fireworks call has been made. Activation on the hosted hub waits for `FIREWORKS_API_KEY` set as a
+  Railway secret and for `model_diagnose` / `model_probe` with `{"provider":"fireworks"}` to pass from that host;
+  only then `HIVE_MODEL_PROVIDER=fireworks`.

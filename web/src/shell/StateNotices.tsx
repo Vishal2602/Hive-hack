@@ -6,7 +6,7 @@ import { Alert } from '@/components/arc/alert/alert';
 import { Button } from '@/components/arc/button/button';
 import type { ModelDiagnosis } from '@/api';
 import { formatClock, formatDuration } from './format';
-import { probeText, splitUnavailable, verdictText } from './modelText';
+import { probeText, providerLabel, splitUnavailable, verdictText } from './modelText';
 import { useLastPoll, useMock } from './store';
 import styles from './StateNotices.module.css';
 
@@ -105,6 +105,7 @@ function Diagnose() {
           <p className={styles.verdict} data-tone={verdict.tone}>{verdict.title}</p>
           {shown.hints.length > 0 && <ul className={styles.hints}>{shown.hints.map((hint, i) => <li key={i}>{hint}</li>)}</ul>}
           <dl className={styles.facts}>
+            {shown.provider && <div><dt>Provider</dt><dd>{providerLabel(shown.provider)}</dd></div>}
             <div><dt>Model</dt><dd>{`${shown.model} at ${shown.baseUrlHost}${shown.proxy ? ' via HIVE_MODEL_PROXY_URL' : ''}`}</dd></div>
             <div><dt>Model list</dt><dd>{`${probeText(shown.modelsStatus, shown.configured)}${shown.modelsCount !== null ? `, ${shown.modelsCount} ${shown.modelsCount === 1 ? 'model' : 'models'}` : ''}${shown.modelListed === false ? ', configured model not listed' : ''}`}</dd></div>
             <div><dt>One-token reply</dt><dd>{probeText(shown.chatStatus, shown.configured)}</dd></div>

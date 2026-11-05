@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { ApiError, HiveClient, memoryTokenStore } from '../web/src/api/client.ts';
 import { LiveFeed, connectionAt, mergeEvents } from '../web/src/api/live.ts';
 import { displaySessionName, viewToSnapshot } from '../web/src/api/adapt.ts';
+import { PROVIDER_LABEL, providerLabel, verdictText } from '../web/src/shell/modelText.ts';
 
 const ADMIN = 'web-live-test-admin-token-5c1d9e';
 
@@ -168,4 +169,12 @@ test('client: timeouts and unreachable servers are typed errors; stale after 10 
   const e = (seq: number) => ({ seq, at: seq, type: 't', detail: '' });
   assert.deepEqual(mergeEvents([e(1), e(2)], [e(2), e(4), e(3)]).map(x => x.seq), [1, 2, 3, 4]);
   assert.deepEqual(mergeEvents([e(1), e(2), e(3)], [e(4), e(5)], 3).map(x => x.seq), [3, 4, 5]);
+});
+
+test('model panel text: model_not_found is a danger headline and providers have plain names', () => {
+  assert.deepEqual(verdictText('model_not_found'), { title: 'The provider does not serve the configured model', tone: 'danger' });
+  assert.equal(providerLabel('fireworks'), PROVIDER_LABEL.fireworks);
+  assert.equal(providerLabel('meta'), 'Meta Model API');
+  assert.equal(providerLabel(undefined), null, 'older hubs send no provider: the panel shows no Provider row');
+  assert.equal(providerLabel('other'), 'other', 'an unknown provider is shown, not hidden');
 });

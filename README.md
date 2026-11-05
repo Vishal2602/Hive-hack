@@ -45,9 +45,9 @@ Hive's entries from your config files).
 - **In your agent's session**: at session start and on every prompt the agent receives a short Hive summary.
   Before it edits a file, Hive type-checks the edit together with everyone's in-progress changes; if the edit
   would break a file a teammate is changing, Claude Code asks you before writing it.
-- **Model analysis** (Meta Muse Spark) explains conflicts that type-check but disagree in meaning (units,
-  formats). It runs on the hub; if the hub cannot reach the model, the dashboard says *unavailable*, never
-  "no conflict".
+- **Model analysis** (Meta Muse Spark, through the Meta Model API or as Muse Spark Open on Fireworks; the key lives
+  on the hub either way) explains conflicts that type-check but disagree in meaning (units, formats). It runs on
+  the hub; if the hub cannot reach the model, the dashboard says *unavailable*, never "no conflict".
 
 ## Supported clients
 
@@ -59,7 +59,7 @@ Hive's entries from your config files).
 
 ## FAQ
 
-**Do I need a Meta (Muse Spark) API key?** No. The model key lives only on the hub. Nothing Hive writes on your
+**Do I need a Meta or Fireworks API key?** No. The model key lives only on the hub. Nothing Hive writes on your
 laptop contains it.
 
 **Do I need to install or run the Hive backend?** No. You only need Node 18+, git, and your coding client. The
@@ -97,8 +97,9 @@ the hub's allowlist (`HIVE_VERIFY_ALLOW`). Commands proposed by an agent never r
   `npm run test:cli` (12 tests). Spec:
   [docs/superpowers/specs/2026-11-03-connect-cli-design.md](docs/superpowers/specs/2026-11-03-connect-cli-design.md).
 - The team hub is hosted at `https://hive-hack-production.up.railway.app` (Railway, one service). From that host the
-  Meta Model API accepts the key but lists no models and answers `model_not_found` for `muse-spark-1.3`; the same key
-  works from a laptop. Model analysis on that hub therefore shows *unavailable* until the host is accepted. See
+  Meta Model API accepts the key but lists no models and answers HTTP 404 (Meta error type `model_not_found`) for
+  `muse-spark-1.3`, which `model_diagnose` reports as `no_models_for_host`; the same key works from a laptop. Model
+  analysis on that hub therefore shows *unavailable* until the host is accepted. See
   [model diagnostics](docs/SELF_HOSTING.md#7-model-diagnostics-and-egress).
 - **Pending:** publishing `hive-connect` to npm, Muse Code verified live, and a run with two real people on two laptops.
 - Built during the Meta Global AI Developer Hackathon (Nov 2026) from a starter kit; see `docs/SOURCES.md`.

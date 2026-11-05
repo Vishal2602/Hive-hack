@@ -4,7 +4,8 @@ import type { Coordinator } from '../domain/coordinator.ts';
 import type { Finding } from '../domain/types.ts';
 import { sha256, type GraphIndex } from '../graph/index.ts';
 import type { Store } from '../store/sqlite.ts';
-import type { ModelDiagnosis } from './meta.ts';
+import { createAnalyzer, type MetaOptions, type ModelDiagnosis, type ModelProvider } from './meta.ts';
+import { isProbeAnalyzer, runModelProbe, type ModelProbeReport } from './probes.ts';
 import { AnalysisInvalid, AnalysisUnavailable, type Analysis, type Analyzer, type EvidenceBundle, type EvidenceChange, type EvidenceDependent, type EvidenceSymbol } from './types.ts';
 
 export interface AnalysisServiceOptions {
@@ -14,6 +15,8 @@ export interface AnalysisServiceOptions {
   sync: (workspaceId: string) => unknown;
   findings: () => Finding[];
   analyzer: Analyzer;
+  /** Builds an analyzer for a provider (model_diagnose / model_probe for a provider other than the active one). Default: from the environment. */
+  analyzerFor?: (provider: ModelProvider, overrides?: Partial<MetaOptions>) => Analyzer;
   /** Laptop changes to include as evidence (bounded by the provider). */
   changes?: () => EvidenceChange[];
   clock?: () => number;
@@ -36,6 +39,7 @@ export class AnalysisService {
   private readonly sync: (workspaceId: string) => unknown;
   private readonly findings: () => Finding[];
   private readonly analyzer: Analyzer;
+  private readonly analyzerFor: (provider: ModelProvider, overrides?: Partial<MetaOptions>) => Analyzer;
   private readonly changes: () => EvidenceChange[];
   private readonly clock: () => number;
   private inFlight: Promise<Analysis> | null = null;
@@ -43,6 +47,7 @@ export class AnalysisService {
   constructor(options: AnalysisServiceOptions) {
     this.store = options.store; this.coordinator = options.coordinator; this.graphFor = options.graph; this.sync = options.sync;
     this.findings = options.findings; this.analyzer = options.analyzer; this.changes = options.changes ?? (() => []); this.clock = options.clock ?? Date.now;
+    this.analyzerFor = options.analyzerFor ?? ((provider, overrides = {}) => createAnalyzer(process.env, { ...overrides, provider }));
   }
 
   /** Bounded evidence: live intents, candidates, live contracts, declarations named by intents/candidates, their dependents. */
@@ -108,13 +113,36 @@ export class AnalysisService {
   private lastDiagnosis: ModelDiagnosis | null = null;
   /** The most recent model_diagnose result since this hub started (memory only). */
   get lastDiagnose(): ModelDiagnosis | null { return this.lastDiagnosis; }
-  /** Runs the analyzer's diagnosis (GET /models + a one-token chat completion from this hub) and keeps the result. */
-  async diagnose(): Promise<ModelDiagnosis> {
-    const analyzer = this.analyzer as Partial<{ diagnose(): Promise<ModelDiagnosis> }>;
-    if (typeof analyzer.diagnose !== 'function') throw new Error('This Hive analyzer does not support model_diagnose');
-    const result = await analyzer.diagnose.call(this.analyzer);
+  /**
+   * Runs a diagnosis (GET /models + a one-token chat completion from this hub) and keeps the result. With a provider
+   * other than the active one, a fresh analyzer for that provider is diagnosed (same timeout), so an operator can
+   * check Fireworks before switching HIVE_MODEL_PROVIDER.
+   */
+  async diagnose(provider?: ModelProvider): Promise<ModelDiagnosis> {
+    const analyzer = this.providerAnalyzer(provider);
+    const target = analyzer as Partial<{ diagnose(): Promise<ModelDiagnosis> }>;
+    if (typeof target.diagnose !== 'function') throw new Error('This Hive analyzer does not support model_diagnose');
+    const result = await target.diagnose.call(analyzer);
     this.lastDiagnosis = result;
     return result;
+  }
+  /** The active analyzer, or a fresh one when another provider is asked for. */
+  private providerAnalyzer(provider: ModelProvider | undefined): Analyzer {
+    const active = this.analyzer as Analyzer & { provider?: ModelProvider; timeoutMs?: number };
+    if (provider === undefined || provider === (active.provider ?? 'meta')) return this.analyzer;
+    return this.analyzerFor(provider, typeof active.timeoutMs === 'number' ? { timeoutMs: active.timeoutMs } : {});
+  }
+
+  /**
+   * model_probe (admin): a minimal completion plus a conflict and a harmless analysis on synthetic repository data,
+   * against the requested or active provider with one attempt and a 90 s budget. Never writes the database, never
+   * emits events, needs no session. The report proves whether the provider works from THIS hub.
+   */
+  probe(provider?: ModelProvider): Promise<ModelProbeReport> {
+    const active = this.analyzer as Analyzer & { provider?: ModelProvider };
+    const analyzer = this.analyzerFor(provider ?? active.provider ?? 'meta', { maxAttempts: 1, timeoutMs: 90_000 });
+    if (!isProbeAnalyzer(analyzer)) throw new Error('This Hive analyzer does not support model_probe');
+    return runModelProbe(analyzer, this.clock);
   }
 
   // ---- laptop relay ---------------------------------------------------------------------------------
@@ -124,8 +152,9 @@ export class AnalysisService {
   private relays = new Map<string, { bundle: EvidenceBundle; known: string[]; at: number }>();
 
   relayRequest(): { inputHash: string; revision: number; model: string; baseUrl: string; body: string } {
-    const analyzer = this.analyzer as Partial<{ requestBody(b: EvidenceBundle): string; model: string; baseUrl: string }>;
+    const analyzer = this.analyzer as Partial<{ requestBody(b: EvidenceBundle): string; model: string; baseUrl: string; provider: ModelProvider }>;
     if (typeof analyzer.requestBody !== 'function') throw new Error('This Hive analyzer does not support laptop relay');
+    if (analyzer.provider !== undefined && analyzer.provider !== 'meta') throw new Error('The laptop relay is only available for the Meta provider; this hub reaches Fireworks directly');
     this.sync(this.coordinator.workspaceId);
     const bundle = this.buildEvidence();
     const known = [...new Set([...bundle.intents.map(i => i.sessionId), ...(bundle.changes ?? []).flatMap(c => c.sessionIds)])];

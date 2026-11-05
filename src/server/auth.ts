@@ -16,7 +16,7 @@ export class AuthError extends Error {
 export const OPERATOR_MEMBER = 'operator';
 /** Routes a viewer may call. Everything else is refused with 403 for viewers. */
 const VIEWER_ROUTES = new Set(['/api/view', '/me', '/events', '/healthz']);
-const ADMIN_ACTIONS = new Set(['token_create', 'token_list', 'token_rename', 'token_revoke', 'model_diagnose']);
+const ADMIN_ACTIONS = new Set(['token_create', 'token_list', 'token_rename', 'token_revoke', 'model_diagnose', 'model_probe']);
 /** The only commands POST /command accepts without a bearer token (rate-limited in src/server/pairing.ts). */
 const PUBLIC_ACTIONS = new Set(['pair_start', 'pair_poll']);
 /** Browser-side pairing decisions: a member or admin signed in to the dashboard, never a connector credential. */

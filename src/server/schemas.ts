@@ -53,7 +53,10 @@ export const commandSchema = z.discriminatedUnion('action', [
   // Laptop relay for model analysis (when this host is not offered the model).
   z.object({ action: z.literal('analysis_relay_request') }),
   // Admin only: probes the model provider from this hub (GET /models + a one-token chat completion) and keeps the result.
-  z.object({ action: z.literal('model_diagnose') }),
+  // provider (optional) diagnoses the other provider before switching HIVE_MODEL_PROVIDER.
+  z.object({ action: z.literal('model_diagnose'), provider: z.enum(['meta', 'fireworks']).optional() }),
+  // Admin only: minimal completion + conflict + harmless analysis on synthetic data (no DB writes, no events); may take up to ~100 s.
+  z.object({ action: z.literal('model_probe'), provider: z.enum(['meta', 'fireworks']).optional() }),
   z.object({ action: z.literal('analysis_relay_submit'), inputHash: z.string().min(1).max(200), httpStatus: z.number().int(),
     responseText: z.string().max(1_000_000), latencyMs: z.number().int().nonnegative() }),
   z.object({ action: z.literal('remote_check'), baseCommit: z.string().max(80).nullable().optional(),
