@@ -329,6 +329,8 @@ export class Coordinator {
       if (contract.status === 'stale') throw new Error('Contract is stale; propose a new agreement or revise it');
       if (contract.status === 'rejected' || contract.status === 'cancelled') throw new Error(`Contract is ${contract.status}`);
       const intent = this.intent(id);
+      // A repeat signature (e.g. after Hive signed automatically) changes nothing and logs nothing.
+      if (this.store.get('SELECT 1 AS x FROM acknowledgements WHERE contract_id = ? AND version = ? AND session_id = ?', contractId, version, id)) return this.contract(contractId);
       this.store.run('INSERT OR IGNORE INTO acknowledgements(contract_id, version, session_id, intent_revision, created_at) VALUES (?, ?, ?, ?, ?)',
         contractId, version, id, intent?.revision ?? 0, this.clock());
       const acknowledged = this.store.all<{ session_id: string }>('SELECT session_id FROM acknowledgements WHERE contract_id = ? AND version = ?', contractId, version).map(r => r.session_id);

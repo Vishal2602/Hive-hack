@@ -103,6 +103,7 @@ function dispatch(command: Command, auth: Auth, context: RequestContext): unknow
     case 'analyze': return service.analyze(command.sessionId, { force: command.force });
     case 'sync': return service.sync();
     case 'hook_check': return service.hookCheck(command.file);
+    case 'hook_inbox': return { member: auth.member, pending: service.contracts.inbox(auth.member) };
     case 'analysis_relay_request': return service.analysis.relayRequest();
     case 'model_diagnose': return service.analysis.diagnose();
     case 'analysis_relay_submit': return service.analysis.relaySubmit({ ...command, via: auth.member });
@@ -262,6 +263,8 @@ const server = createServer(async (request, response) => {
     response.writeHead(error instanceof AuthError || error instanceof RateLimitError ? error.status : 400).end(JSON.stringify({ error: error instanceof Error ? error.message : 'Request failed' }));
   }
 });
+// Hooks and the dashboard reuse connections; Node's 5 s default closes them mid-reuse (ECONNRESET).
+server.keepAliveTimeout = 65_000;
 server.requestTimeout = 15_000;
 
 // ---- listen: PORT (Railway) first, then HIVE_PORT, then 4317; HIVE_HOST defaults to loopback ----

@@ -115,7 +115,8 @@ export class MetaAnalyzer implements Analyzer {
       baseUrl: (clean(options.baseUrl ?? process.env.HIVE_MODEL_BASE_URL) || 'https://api.meta.ai/v1').replace(/\/+$/, ''),
       // The proxy applies to analysis, diagnose and the egress lookup alike.
       fetch: options.fetch ?? (proxyUrl ? proxyFetch(proxyUrl) : fetch),
-      timeoutMs: options.timeoutMs ?? 30_000,
+      // Real evidence bundles take Muse Spark well over 30 s to answer; HIVE_MODEL_TIMEOUT_MS overrides.
+      timeoutMs: options.timeoutMs ?? (Number(process.env.HIVE_MODEL_TIMEOUT_MS) > 0 ? Number(process.env.HIVE_MODEL_TIMEOUT_MS) : 90_000),
       maxAttempts: options.maxAttempts ?? 3,
       sleep: options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))),
       random: options.random ?? Math.random,

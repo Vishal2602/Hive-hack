@@ -19,6 +19,8 @@ const HOOK_EVENTS: { event: string; arg: string; matcher?: string; timeout: numb
   { event: 'PreToolUse', arg: 'pre-write', matcher: 'Edit|Write|MultiEdit', timeout: 30 },
   // Bash too: agents sometimes edit with shell redirection; the hook then re-syncs every changed file.
   { event: 'PostToolUse', arg: 'post-write', matcher: 'Edit|Write|MultiEdit|Bash', timeout: 60 },
+  // Every other tool: a quick look for agreements waiting on this member, so they are settled mid-turn.
+  { event: 'PostToolUse', arg: 'inbox', matcher: 'Read|Grep|Glob|mcp__hive__.*', timeout: 15 },
 ];
 
 function fail(message: string): never { console.error(`hive-connect: ${message}`); process.exit(1); }
@@ -38,8 +40,10 @@ export function mergeSettings(existing: Record<string, unknown>, hub: string, se
   delete env.MODEL_API_KEY;
   settings.env = env;
   const hooks = { ...(existing.hooks as Record<string, HookEntry[]> | undefined ?? {}) };
+  // Drop old Hive entries once per event first: an event can carry several Hive hooks (PostToolUse does).
+  for (const event of new Set(HOOK_EVENTS.map(e => e.event))) hooks[event] = (hooks[event] ?? []).filter(entry => !entry.hooks?.some(h => h.command.includes('hive-hook.mjs')));
   for (const { event, arg, matcher, timeout } of HOOK_EVENTS) {
-    const kept = (hooks[event] ?? []).filter(entry => !entry.hooks?.some(h => h.command.includes('hive-hook.mjs')));
+    const kept = hooks[event] ?? [];
     const command = `node "$CLAUDE_PROJECT_DIR/.hive/hive-hook.mjs" ${arg} --client claude`;
     kept.push({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command, timeout }] });
     hooks[event] = kept;
